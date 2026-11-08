@@ -42,6 +42,9 @@ def _measure_media(store: Store, path: str, *, model: str, language: str, target
     samples = None
     try:
         samples = face.sample_video(path, face.ensure_model(store.root)) or None
+        if samples and all(s.state == "none" for s in samples):
+            samples = None  # audio-only card, covered camera, slides: not a 0% score
+            notes.append("No face was visible in the video, so eye contact was not measured.")
     except face.FaceUnavailable as exc:
         notes.append(f"Eye contact was not measured: {exc}")
     except Exception:

@@ -147,3 +147,17 @@ def test_text_answer_with_the_model_down_is_a_readable_error(tmp_path):
 ])
 def test_provider_errors_become_one_plain_sentence(raw, words):
     assert words in coach.friendly(RuntimeError(raw))
+
+
+def test_video_with_no_face_anywhere_is_not_scored_as_zero_eye_contact(tmp_path, monkeypatch):
+    from rehearse.delivery import FaceSample, Word
+
+    store = Store(tmp_path)
+    monkeypatch.setattr(pipeline.speech, "transcribe",
+                        lambda *a, **k: ([Word("hello", 0.0, 0.4), Word("there", 0.5, 0.9)], "en", 1.0))
+    monkeypatch.setattr(pipeline.face, "ensure_model", lambda root: root)
+    monkeypatch.setattr(pipeline.face, "sample_video", lambda *a: [FaceSample(t / 2, "none") for t in range(6)])
+    report, _, notes = pipeline._measure_media(store, "x.webm", model="base", language="", target=(30, 90),
+                                               on_stage=lambda s: None)
+    assert report["facing_ratio"] is None and "eye_contact" not in report["scores"]
+    assert any("not measured" in n for n in notes)
