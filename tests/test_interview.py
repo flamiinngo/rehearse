@@ -50,9 +50,9 @@ def test_numbers_use_the_latest_take_of_each_question(tmp_path):
 class DebriefLLM:
     def complete_structured(self, **kw):
         if kw.get("purpose") == "rehearse.report":
-            assert "Q0:" in kw["input"][0]["text"]
+            assert "Question 1:" in kw["input"][0]["text"] and "Q0" not in kw["input"][0]["text"]
             return SimpleNamespace(parsed={"verdict": "promising", "headline": "h", "strengths": ["s"], "fixes": ["f"],
-                                           "best_question": 9, "next_practice": "n"})
+                                           "best_question": 1, "next_practice": "n"})
         raise AssertionError(kw.get("purpose"))
 
 

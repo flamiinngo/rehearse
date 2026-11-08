@@ -297,7 +297,7 @@ Write the debrief a candid, kind hiring panel would give:
 - strengths: the 3 strongest things across ALL answers, specific, quoting the candidate where possible.
 - fixes: the 3 changes that would most improve the next real {what_short}, most important first; use the
   delivery numbers (fillers, pace, eye contact, presence) where they matter.
-- best_question: the 0-based index of the best answer.
+- best_question: the number of the best answer (Question 1 is 1). Refer to questions by these numbers.
 - next_practice: one sentence on exactly what to rehearse next.
 - {integrity}
 Write in the language of the answers. Plain sentences, no markdown."""
@@ -313,7 +313,7 @@ def verdict_for(score: int | None) -> str | None:
 def interview_report(llm, *, scenario: str, subject: str, answers: list[dict], score: int | None = None) -> dict:
     s = SCENARIOS[scenario]
     body = "\n\n".join(
-        f"Q{i}: {a['question']}\nAnswer: {a['transcript'] or '(no answer)'}\nDelivery: {json.dumps(a['numbers'])}"
+        f"Question {i + 1}: {a['question']}\nAnswer: {a['transcript'] or '(no answer)'}\nDelivery: {json.dumps(a['numbers'])}"
         for i, a in enumerate(answers))
     result = _call(
         llm,
@@ -326,6 +326,6 @@ def interview_report(llm, *, scenario: str, subject: str, answers: list[dict], s
     data = result.parsed
     if not isinstance(data, dict) or data.get("verdict") not in ("strong", "promising", "not_yet"):
         raise CoachError("The model did not return a debrief. Try again or switch models.")
-    data["best_question"] = max(0, min(int(data.get("best_question") or 0), len(answers) - 1))
+    data["best_question"] = max(0, min(int(data.get("best_question") or 1) - 1, len(answers) - 1))  # stored 0-based
     data["verdict"] = verdict_for(score) or data["verdict"]
     return data
