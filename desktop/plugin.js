@@ -449,12 +449,12 @@ function Replay({ session, index, attempt, videoUrl, onRetry, onNext, isLast }) 
       children: [
         h(ScoreRing, { value: attempt.overall, label: 'overall' }),
         h('div', { style: { flex: 1, minWidth: 220 }, children: [
-          el('div', { fontSize: 16, fontWeight: 600, marginBottom: 4 }, fb.summary),
+          el('div', { fontSize: 16, fontWeight: 600, marginBottom: 4 }, fb ? fb.summary : 'Delivery scored. Content feedback could not be written this time.'),
           el('div', S.muted, headline),
           attempt.improvement != null && el('div', { marginTop: 8, fontWeight: 600, color: attempt.improvement >= 0 ? 'var(--ui-green)' : 'var(--ui-red)' },
             attempt.improvement > 0 ? `▲ ${attempt.improvement} points better than your best try` : attempt.improvement === 0 ? 'Same as your best try' : `▼ ${-attempt.improvement} below your best try`)
         ] }),
-        h(ScoreRing, { value: fb.content_score, size: 74, label: 'content' }),
+        fb && h(ScoreRing, { key: 'c', value: fb.content_score, size: 74, label: 'content' }),
         h(ScoreRing, { value: d.score, size: 74, label: 'delivery' })
       ]
     }),
@@ -472,10 +472,12 @@ function Replay({ session, index, attempt, videoUrl, onRetry, onNext, isLast }) 
     h('div', {
       key: 'coach', style: { ...S.card, display: 'flex', flexDirection: 'column', gap: 14 },
       children: [
-        h(List, { title: 'What worked', items: fb.strengths, icon: '✓' }),
-        h(List, { title: 'Fix next', items: fb.improvements, icon: '→' }),
-        h('div', { children: [el('div', { fontWeight: 600, fontSize: 13.5, marginBottom: 6 }, 'A stronger answer, from what you said'), el('div', { fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }, fb.stronger_answer)] }),
-        el('div', S.muted, `Likely follow-up: “${fb.follow_up}”`),
+        ...(fb ? [
+          h(List, { key: 'w', title: 'What worked', items: fb.strengths, icon: '✓' }),
+          h(List, { key: 'f', title: 'Fix next', items: fb.improvements, icon: '→' }),
+          h('div', { key: 's', children: [el('div', { fontWeight: 600, fontSize: 13.5, marginBottom: 6 }, 'A stronger answer, from what you said'), el('div', { fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }, fb.stronger_answer)] }),
+          el('div', S.muted, `Likely follow-up: “${fb.follow_up}”`, { key: 'u' })
+        ] : []),
         ...(attempt.notes || []).map((n, i) => el('div', S.muted, `ⓘ ${n}`, { key: `n${i}` }))
       ]
     }),

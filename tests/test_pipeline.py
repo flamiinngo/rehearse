@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rehearse import face, pipeline
+from rehearse import coach, face, pipeline
 from rehearse.sessions import SessionNotFound, Store
 
 
@@ -97,3 +97,53 @@ def test_corrupt_face_model_download_is_refused(tmp_path, monkeypatch):
     with pytest.raises(face.FaceUnavailable, match="checksum"):
         face.ensure_model(tmp_path)
     assert not (tmp_path / "models" / face.MODEL_NAME).exists()
+
+
+class CapturingLLM(FakeLLM):
+    def complete_structured(self, *, instructions, input, json_schema, **kw):
+        self.last_instructions = instructions
+        return super().complete_structured(instructions=instructions, input=input, json_schema=json_schema, **kw)
+
+
+def test_interview_plan_prompt_never_carries_the_presentation_rule(tmp_path):
+    llm = CapturingLLM()
+    pipeline.start(llm, Store(tmp_path), mode="interview", subject="junior data analyst")
+    assert "Deliver your presentation" not in llm.last_instructions
+    pipeline.start(llm, Store(tmp_path), mode="presentation", subject="Q3 results")
+    assert "Deliver your presentation" in llm.last_instructions
+
+
+class RateLimitedFeedbackLLM(FakeLLM):
+    def complete_structured(self, **kw):
+        if kw.get("purpose") == "rehearse.feedback":
+            raise RuntimeError("Error code: 429 - {'reason': 'rate_limited', 'retry_after': 602}")
+        return super().complete_structured(**kw)
+
+
+def test_model_outage_keeps_the_measured_delivery_and_says_why(tmp_path, monkeypatch):
+    store, llm = Store(tmp_path), RateLimitedFeedbackLLM()
+    s = pipeline.start(llm, store, mode="interview", subject="nurse")
+    take = tmp_path / "take.webm"
+    take.write_bytes(b"x")
+    measured = {"measured": "audio", "score": 71, "moments": [], "scores": {"pace": 71}}
+    monkeypatch.setattr(pipeline, "_measure_media", lambda *a, **k: (measured, "I care for patients", []))
+
+    a = pipeline.analyze(llm, store, session_id=s["id"], question_index=0, media_path=str(take))
+    assert a["feedback"] is None and a["overall"] == 71 and a["delivery"]["score"] == 71
+    assert any("rate-limited" in n for n in a["notes"])
+    assert store.load(s["id"])["attempts"][0]["overall"] == 71
+
+
+def test_text_answer_with_the_model_down_is_a_readable_error(tmp_path):
+    store, llm = Store(tmp_path), RateLimitedFeedbackLLM()
+    s = pipeline.start(llm, store, mode="interview", subject="nurse")
+    with pytest.raises(coach.CoachError, match="busy"):
+        pipeline.analyze(llm, store, session_id=s["id"], question_index=0, answer_text="I care for patients")
+
+
+@pytest.mark.parametrize("raw, words", [
+    ("Error code: 429 rate_limited", "busy"), ("401 Unauthorized", "signed in"),
+    ("Request timed out", "too long"), ("connection reset", "could not be reached"),
+])
+def test_provider_errors_become_one_plain_sentence(raw, words):
+    assert words in coach.friendly(RuntimeError(raw))

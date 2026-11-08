@@ -6,6 +6,9 @@ Runs on whatever model the user already has selected; no keys of its own.
 from __future__ import annotations
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 MODES = {
     "interview": "a job interview",
@@ -53,14 +56,21 @@ Extra context from the user (may be empty): {details}
 
 Rules:
 - {count} questions, in the order a real {asker} would ask them, opening easy and building to the hard ones.
-- Interview: mix background, behavioural ("tell me about a time"), role-specific and one curveball. Use the
-  role, seniority and any job description given; never invent facts about the user.
-- Presentation: question 1 is exactly "Deliver your presentation." with target_seconds set to the talk length
-  the user gave (default 300), then audience questions a sharp listener would ask about this topic.
-- target_seconds is a realistic ideal answer length (behavioural answers 60-120).
+- {mode_rule}
+- target_seconds is a realistic ideal answer length.
 - why: one sentence on what the asker is really testing. tip: one concrete, actionable sentence.
 - opening: one or two warm sentences the {asker} says before the first question, spoken aloud.
 - Plain spoken English, no markdown."""
+
+# Only the active mode's rule goes in the prompt: given both, models apply both.
+_MODE_RULES = {
+    "interview": ("Mix background, behavioural (\"tell me about a time\"), role-specific and one curveball "
+                  "question; behavioural answers run 60-120 seconds. Use the role, seniority and any job description "
+                  "given; never invent facts about the user."),
+    "presentation": ("Question 1 is exactly \"Deliver your presentation.\" with target_seconds set to the talk "
+                     "length the user gave (default 300). The rest are the questions a sharp audience member would ask "
+                     "about this topic afterwards, 30-90 seconds each."),
+}
 
 _FEEDBACK_INSTRUCTIONS = """You are a candid, kind coach reviewing one practice answer in {what} about: {subject}.
 Judge only the CONTENT here; delivery numbers are measured separately and given for context.
@@ -78,18 +88,40 @@ Plain English, no markdown headings."""
 
 
 class CoachError(RuntimeError):
-    """The model returned nothing usable."""
+    """The model returned nothing usable, or could not be reached."""
 
 
 def _asker(mode: str) -> str:
     return "interviewer" if mode == "interview" else "audience member"
 
 
+def friendly(exc: Exception) -> str:
+    """One plain sentence for a failed model call (rate limits, auth, timeouts all arrive as provider errors)."""
+    text = str(exc).lower()
+    if "429" in text or "rate limit" in text or "rate_limited" in text:
+        return "Your AI model is busy right now (rate-limited). Wait a few minutes or switch models, then try again."
+    if "401" in text or "403" in text or "auth" in text:
+        return "Your AI model rejected the request. Check you are signed in to your provider in Hermes."
+    if "timeout" in text or "timed out" in text:
+        return "Your AI model took too long to answer. Try again, or switch to a faster model."
+    return "Your AI model could not be reached. Try again in a moment or switch models."
+
+
+def _call(llm, **kwargs):
+    try:
+        return llm.complete_structured(**kwargs)
+    except Exception as exc:  # provider SDKs raise their own types; the user needs the sentence, the log keeps the rest
+        logger.warning("rehearse: %s failed: %s", kwargs.get("purpose"), exc)
+        raise CoachError(friendly(exc)) from exc
+
+
 def plan(llm, *, mode: str, subject: str, details: str = "", count: int = 5) -> dict:
     count = max(2, min(int(count or 5), 10))
-    result = llm.complete_structured(
+    result = _call(
+        llm,
         instructions=_PLAN_INSTRUCTIONS.format(
-            what=MODES[mode], subject=subject, details=details or "(none)", count=count, asker=_asker(mode)),
+            what=MODES[mode], subject=subject, details=details or "(none)", count=count, asker=_asker(mode),
+            mode_rule=_MODE_RULES[mode]),
         input=[{"type": "text", "text": f"Mode: {mode}\nSubject: {subject}\nDetails: {details or '(none)'}"}],
         json_schema=PLAN_SCHEMA, schema_name="rehearsal_plan", purpose="rehearse.plan",
         temperature=0.7, max_tokens=1800,
@@ -104,7 +136,8 @@ def plan(llm, *, mode: str, subject: str, details: str = "", count: int = 5) -> 
 
 def feedback(llm, *, mode: str, subject: str, question: str, transcript: str, delivery: dict | None) -> dict:
     numbers = _delivery_summary(delivery) if delivery else "(text answer: no audio measurements)"
-    result = llm.complete_structured(
+    result = _call(
+        llm,
         instructions=_FEEDBACK_INSTRUCTIONS.format(what=MODES[mode], subject=subject, asker=_asker(mode)),
         input=[{"type": "text", "text": f"Question: {question}\n\nAnswer transcript:\n{transcript or '(silence)'}"
                 f"\n\nMeasured delivery: {numbers}"}],

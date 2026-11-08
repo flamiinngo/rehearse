@@ -83,9 +83,19 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
         raise ValueError("Give a recording (media_path) or the answer as text (answer_text).")
 
     on_stage("feedback")
-    fb = coach.feedback(llm, mode=session["mode"], subject=session["subject"], question=question["question"],
-                        transcript=transcript, delivery=report if report["measured"] != "text" else None)
-    overall = fb["content_score"] if report["measured"] == "text" else round((report["score"] + fb["content_score"]) / 2)
+    text_only = report["measured"] == "text"
+    try:
+        fb = coach.feedback(llm, mode=session["mode"], subject=session["subject"], question=question["question"],
+                            transcript=transcript, delivery=None if text_only else report)
+    except coach.CoachError as exc:
+        if text_only:
+            raise  # a text answer has nothing to score without the model
+        fb = None  # the measured delivery is still worth keeping
+        notes.append(f"Content feedback is missing: {exc}")
+    if fb is None:
+        overall = report["score"]
+    else:
+        overall = fb["content_score"] if text_only else round((report["score"] + fb["content_score"]) / 2)
 
     previous = best_by_question(session).get(question_index)
     recording = ""

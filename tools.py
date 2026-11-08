@@ -98,7 +98,8 @@ def make_handlers(ctx, runtime):
             "overall": a["overall"], "improvement_vs_best_previous": a["improvement"],
             "delivery": {k: d.get(k) for k in ("measured", "score", "scores", "duration", "wpm", "filler_count",
                                                  "fillers", "long_pauses", "facing_ratio")},
-            "key_moments": d["moments"][:8], "feedback": a["feedback"], "transcript": a["transcript"],
+            "key_moments": d["moments"][:8], "feedback": a["feedback"] or "unavailable (see notes)",
+            "transcript": a["transcript"],
             "notes": a["notes"],
         })
 
