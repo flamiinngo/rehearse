@@ -71,7 +71,7 @@ def test_params_are_type_checked(methods):
 
 def test_bad_plan_surfaces_as_a_readable_job_error(methods):
     done = wait(methods["plan.create"]({"mode": "karaoke", "subject": "x"})["job"])
-    assert done["state"] == "error" and "mode must be one of" in done["error"]
+    assert done["state"] == "error" and "Pick one of" in done["error"]
 
 
 def test_unknown_job_reports_missing(methods):

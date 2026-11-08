@@ -16,7 +16,7 @@ import json
 import logging
 import re
 
-from . import face, jobs, pipeline, speech
+from . import coach, face, jobs, pipeline, speech
 from .sessions import SessionNotFound, summarize
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def methods(ctx, runtime) -> dict:
         return {"ready": False, "job": jobs.submit("engine", work)}
 
     def plan_create(params, **_):
-        mode = _text(params, "mode", 20, required=True)
+        scenario = _text(params, "scenario", 20) or _text(params, "mode", 20, required=True)
         subject = _text(params, "subject", 300, required=True)
         details = _text(params, "details", 6000)
         count = _int(params, "count", 5)
@@ -65,7 +65,7 @@ def methods(ctx, runtime) -> dict:
 
         def work(stage):
             stage("planning")
-            return pipeline.start(ctx.llm, store, mode=mode, subject=subject, details=details, count=count)
+            return pipeline.start(ctx.llm, store, scenario=scenario, subject=subject, details=details, count=count)
 
         return {"job": jobs.submit("plan", work)}
 
@@ -103,8 +103,11 @@ def methods(ctx, runtime) -> dict:
         runtime.store().delete(_text(params, "session_id", 64, required=True))
         return {"deleted": True}
 
+    def scenarios(params, **_):
+        return {"scenarios": coach.catalog()}
+
     return {
-        "engine.prepare": engine_prepare, "plan.create": plan_create, "take.analyze": take_analyze,
+        "scenarios": scenarios, "engine.prepare": engine_prepare, "plan.create": plan_create, "take.analyze": take_analyze,
         "job.status": job_status, "sessions.list": sessions_list, "session.get": session_get,
         "session.delete": session_delete,
     }

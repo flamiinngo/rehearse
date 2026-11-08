@@ -15,13 +15,17 @@ from .sessions import Store, best_by_question
 logger = logging.getLogger(__name__)
 
 
-def start(llm, store: Store, *, mode: str, subject: str, details: str = "", count: int = 5) -> dict:
-    if mode not in coach.MODES:
-        raise ValueError(f"mode must be one of: {', '.join(coach.MODES)}")
+def start(llm, store: Store, *, scenario: str, subject: str, details: str = "", count: int = 5) -> dict:
+    key = coach.resolve(scenario)
     if not subject.strip():
         raise ValueError("Say what you are rehearsing for: a role, a talk title or a topic.")
-    return store.create(mode=mode, subject=subject.strip(), details=details.strip(),
-                        plan=coach.plan(llm, mode=mode, subject=subject, details=details, count=count))
+    return store.create(scenario=key, mode=coach.SCENARIOS[key].mode, subject=subject.strip(), details=details.strip(),
+                        plan=coach.plan(llm, scenario=key, subject=subject, details=details, count=count))
+
+
+def scenario_of(session: dict) -> str:
+    """Sessions saved before scenarios existed carry only a mode."""
+    return session.get("scenario") or ("job" if session.get("mode") == "interview" else "presentation")
 
 
 def _target(question: dict) -> tuple[float, float]:
@@ -85,7 +89,7 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
     on_stage("feedback")
     text_only = report["measured"] == "text"
     try:
-        fb = coach.feedback(llm, mode=session["mode"], subject=session["subject"], question=question["question"],
+        fb = coach.feedback(llm, scenario=scenario_of(session), subject=session["subject"], question=question["question"],
                             transcript=transcript, delivery=None if text_only else report)
     except coach.CoachError as exc:
         if text_only:

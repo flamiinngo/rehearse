@@ -47,7 +47,30 @@ const MARKS = {
   repeat: { color: 'var(--ui-red)', name: 'Stumble' }
 }
 
-const SCORE_NAMES = { fillers: 'Filler words', pace: 'Pace', eye_contact: 'Eye contact', pauses: 'Pauses', length: 'Length' }
+// Keys match coach.SCENARIOS in the Python half.
+const SCENES = [
+  { group: 'Interviews', items: [
+    { key: 'job', emoji: '💼', label: 'Job interview', ask: 'What role are you interviewing for?', eg: 'Junior data analyst at a bank', more: 'Paste the job description for sharper questions' },
+    { key: 'technical', emoji: '🧠', label: 'Technical', ask: 'What role and stack?', eg: 'Backend engineer, Python and Postgres', more: 'Add the job description or topics to cover' },
+    { key: 'case', emoji: '📊', label: 'Case interview', ask: 'What firm or kind of case?', eg: 'Consulting, market-entry case', more: 'Add the firm, industry or case type' },
+    { key: 'admission', emoji: '🎓', label: 'University or scholarship', ask: 'Which programme or scholarship?', eg: 'MSc Computer Science, scholarship interview', more: 'Add your background and why this programme' },
+    { key: 'visa', emoji: '🛂', label: 'Visa or immigration', ask: 'Which visa, and what for?', eg: "Student visa for a master's in Canada", more: 'Add your situation (practise telling the truth clearly)' },
+    { key: 'residency', emoji: '🩺', label: 'Medical or residency', ask: 'Which programme or specialty?', eg: 'Internal medicine residency', more: 'Add your experience and the programme' },
+    { key: 'media', emoji: '📰', label: 'Media or press', ask: 'What is the interview about?', eg: 'Local news on our new community clinic', more: 'Add your key message and tricky topics' },
+    { key: 'podcast', emoji: '🎙️', label: 'Podcast guest', ask: 'Which show, and your topic?', eg: 'A startup podcast, building in Lagos', more: 'Add the host, audience and your story' }
+  ] },
+  { group: 'Talks', items: [
+    { key: 'presentation', emoji: '🎤', label: 'Presentation', ask: 'What is your talk about?', eg: 'Our Q3 results, 5 minutes, to leadership', more: 'Add audience, length or key points' },
+    { key: 'pitch', emoji: '🚀', label: 'Investor pitch', ask: 'What are you pitching?', eg: 'Seed round for a logistics app, 3 minutes', more: 'Add traction, market and your ask' },
+    { key: 'demo', emoji: '🖥️', label: 'Product demo', ask: 'What are you demoing?', eg: 'My Hermes plugin, 90-second demo video', more: 'Add who watches it and what should wow them' },
+    { key: 'sales', emoji: '🤝', label: 'Sales pitch', ask: 'What are you selling, to whom?', eg: 'Payroll software to a 50-person company', more: "Add the buyer's situation and objections" },
+    { key: 'academic', emoji: '📚', label: 'Class talk or thesis', ask: 'What is your topic?', eg: 'Master’s thesis defence on solar microgrids', more: 'Add your method, findings and committee' },
+    { key: 'speech', emoji: '🥂', label: 'Speech or toast', ask: 'What is the occasion?', eg: "Best man's speech at my brother's wedding", more: 'Add names, stories and the length you want' }
+  ] }
+]
+const SCENE = Object.fromEntries(SCENES.flatMap(g => g.items).map(s => [s.key, s]))
+
+const SCORE_NAMES ={ fillers: 'Filler words', pace: 'Pace', eye_contact: 'Eye contact', pauses: 'Pauses', length: 'Length' }
 
 async function waitJob(job, onStage) {
   for (;;) {
@@ -82,18 +105,16 @@ const S = {
 
 const el = (tag, style, children, extra = {}) => h(tag, { style, ...extra, children })
 
-function ModeCard({ active, title, desc, emoji, onClick }) {
+function SceneChip({ scene, active, onClick }) {
   return h('button', {
-    type: 'button', onClick,
+    type: 'button', onClick, 'aria-pressed': active,
     style: {
-      ...S.card, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start', color: 'inherit',
-      borderColor: active ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)',
-      boxShadow: active ? '0 0 0 2px color-mix(in srgb, var(--ui-accent) 35%, transparent)' : 'none'
+      display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 999, cursor: 'pointer',
+      fontSize: 13.5, color: 'inherit', background: active ? 'color-mix(in srgb, var(--ui-accent) 14%, transparent)' : 'var(--ui-bg-elevated)',
+      border: `1px solid ${active ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)'}`,
+      boxShadow: active ? '0 0 0 2px color-mix(in srgb, var(--ui-accent) 25%, transparent)' : 'none'
     },
-    children: [
-      el('span', { fontSize: 26, lineHeight: 1 }, emoji),
-      h('span', { children: [el('div', { fontWeight: 600, fontSize: 15 }, title), el('div', { ...S.muted, marginTop: 4 }, desc)] })
-    ]
+    children: [el('span', { fontSize: 16, lineHeight: 1 }, scene.emoji), el('span', { fontWeight: active ? 600 : 500 }, scene.label)]
   })
 }
 
@@ -152,7 +173,7 @@ function Problem({ text, onRetry }) {
 
 // ---------- home: the whole onboarding is three choices ----------
 function Home({ engine, onStart }) {
-  const [mode, setMode] = useState('interview')
+  const [scene, setScene] = useState('job')
   const [subject, setSubject] = useState('')
   const [details, setDetails] = useState('')
   const [showDetails, setShowDetails] = useState(false)
@@ -169,7 +190,7 @@ function Home({ engine, onStart }) {
     setError('')
     setBusy(STAGES.planning)
     try {
-      const { job } = await rpc('plan.create', { mode, subject, details, count })
+      const { job } = await rpc('plan.create', { scenario: scene, subject, details, count })
       const session = await waitJob(job, s => setBusy(STAGES[s] || STAGES.planning))
       onStart(session)
     } catch (e) {
@@ -178,7 +199,7 @@ function Home({ engine, onStart }) {
     }
   }
 
-  const interview = mode === 'interview'
+  const sc = SCENE[scene]
   const recent = history?.sessions?.slice(0, 5) || []
   const prog = history?.progress || {}
 
@@ -190,19 +211,29 @@ function Home({ engine, onStart }) {
         el('p', { ...S.sub, marginTop: 6 }, 'Practise out loud. Hermes asks the questions, watches you answer, and shows you exactly what to fix.')
       ]
     }),
-    el('div', S.grid2, [
-      h(ModeCard, { key: 'i', active: interview, emoji: '💼', title: 'Job interview', desc: 'Realistic questions for the role, one at a time.', onClick: () => setMode('interview') }),
-      h(ModeCard, { key: 'p', active: !interview, emoji: '🎤', title: 'Presentation or speech', desc: 'Give your talk, then take questions from the audience.', onClick: () => setMode('presentation') })
-    ], { key: 'modes' }),
+    h('div', {
+      key: 'scenes', style: { display: 'flex', flexDirection: 'column', gap: 12 },
+      children: [
+        el('span', S.label, 'What are you preparing for?', { key: 'q' }),
+        ...SCENES.map(g => h('div', {
+          key: g.group, style: { display: 'flex', flexDirection: 'column', gap: 8 },
+          children: [
+            el('span', { ...S.muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }, g.group),
+            el('div', { display: 'flex', flexWrap: 'wrap', gap: 8 },
+              g.items.map(it => h(SceneChip, { key: it.key, scene: it, active: it.key === scene, onClick: () => setScene(it.key) })))
+          ]
+        }))
+      ]
+    }),
     h('div', {
       key: 'form', style: { ...S.card, display: 'flex', flexDirection: 'column', gap: 14 },
       children: [
         h('label', {
           children: [
-            el('span', S.label, interview ? 'What role are you interviewing for?' : 'What is your talk about?'),
+            el('span', S.label, sc.ask),
             h('input', {
               style: S.input, value: subject, autoFocus: true, maxLength: 300,
-              placeholder: interview ? 'e.g. Junior data analyst at a bank' : 'e.g. Our Q3 results, 5 minutes, to the leadership team',
+              placeholder: `e.g. ${sc.eg}`,
               onChange: e => setSubject(e.target.value),
               onKeyDown: e => e.key === 'Enter' && subject.trim() && !busy && start()
             })
@@ -211,11 +242,11 @@ function Home({ engine, onStart }) {
         showDetails
           ? h('label', {
               children: [
-                el('span', S.label, interview ? 'Job description or anything about the role (optional)' : 'Audience, length, key points (optional)'),
+                el('span', S.label, `${sc.more} (optional)`),
                 h('textarea', { style: { ...S.input, minHeight: 90, resize: 'vertical' }, value: details, maxLength: 6000, onChange: e => setDetails(e.target.value) })
               ]
             })
-          : h('button', { type: 'button', onClick: () => setShowDetails(true), style: { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ui-accent)', fontSize: 13, textAlign: 'left' }, children: interview ? '+ Paste the job description for sharper questions' : '+ Add audience, length or key points' }),
+          : h('button', { type: 'button', onClick: () => setShowDetails(true), style: { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ui-accent)', fontSize: 13, textAlign: 'left' }, children: `+ ${sc.more}` }),
         h('div', {
           style: { ...S.row, justifyContent: 'space-between' },
           children: [
@@ -246,7 +277,7 @@ function Home({ engine, onStart }) {
         h('div', { style: { ...S.row, justifyContent: 'space-between', marginBottom: 10 }, children: [el('span', { fontWeight: 600 }, 'Your progress'), prog.first_score != null && el('span', S.muted, `First ${prog.first_score} → latest ${prog.latest_score}`)] }),
         ...recent.map(r => h('div', {
           key: r.id, style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--ui-stroke-secondary)', fontSize: 13.5 },
-          children: [el('span', null, `${r.mode === 'interview' ? '💼' : '🎤'}  ${r.title}`), el('span', { fontWeight: 600, color: r.score != null ? scoreColor(r.score) : 'var(--ui-text-tertiary)' }, r.score ?? 'not answered')]
+          children: [el('span', null, `${(SCENE[r.scenario] || SCENE.job).emoji}  ${r.title}`), el('span', { fontWeight: 600, color: r.score != null ? scoreColor(r.score) : 'var(--ui-text-tertiary)' }, r.score ?? 'not answered')]
         }))
       ]
     })

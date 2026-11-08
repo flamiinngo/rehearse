@@ -13,22 +13,23 @@ logger = logging.getLogger(__name__)
 START = {
     "name": "rehearse_start",
     "description": (
-        "Start a spoken rehearsal: a mock job interview, or a presentation/speech followed by audience "
-        "questions. Returns a session_id and the questions. Then ask the user ONE question at a time, in "
-        "order, and analyse each answer with rehearse_analyze before asking the next. Use when the user "
-        "wants to practise an interview, talk, pitch or speech."
+        "Start a spoken rehearsal for any interview or talk: job, technical, case, admission, visa, medical, "
+        "media or podcast interviews; presentations, investor or sales pitches, product demos, thesis "
+        "defences, speeches. Returns a session_id and the questions. Then ask the user ONE question at a "
+        "time, in order, and analyse each answer with rehearse_analyze before asking the next."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "mode": {"type": "string", "enum": list(coach.MODES), "description": "interview or presentation"},
+            "scenario": {"type": "string", "enum": list(coach.SCENARIOS),
+                         "description": "The kind of rehearsal; 'job' or 'presentation' when unsure."},
             "subject": {"type": "string", "description": "The role (e.g. 'junior data analyst at a bank') or "
                                                         "the talk title/topic."},
             "details": {"type": "string", "description": "Optional: job description, seniority, company, talk "
                                                         "length, audience. Only what the user said."},
             "count": {"type": "integer", "description": "Number of questions, 2-10 (default 5)."},
         },
-        "required": ["mode", "subject"],
+        "required": ["scenario", "subject"],
     },
 }
 
@@ -69,7 +70,7 @@ def _err(message: str) -> str:
 def make_handlers(ctx, runtime):
     def start(args: dict, **_):
         try:
-            s = pipeline.start(ctx.llm, runtime.store(), mode=args.get("mode", "interview"),
+            s = pipeline.start(ctx.llm, runtime.store(), scenario=args.get("scenario") or args.get("mode") or "job",
                                subject=args.get("subject", ""), details=args.get("details", ""),
                                count=args.get("count") or 5)
         except (ValueError, coach.CoachError) as exc:

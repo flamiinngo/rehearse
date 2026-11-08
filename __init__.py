@@ -14,13 +14,20 @@ PLUGIN_ID = "rehearse"
 
 _HELP = """Rehearse: practise out loud, get a scored replay.
 
-  /rehearse interview <role>        e.g. /rehearse interview junior data analyst at a bank
-  /rehearse presentation <topic>    e.g. /rehearse presentation quarterly results, 5 minutes
-  /rehearse history                 your scores over time
+  /rehearse <kind> <what for>     e.g. /rehearse job junior data analyst at a bank
+                                       /rehearse visa student visa for a master's in Canada
+                                       /rehearse demo my Hermes plugin, 90 seconds
+  /rehearse history               your scores over time
+
+Kinds: {kinds}
 
 Best in Hermes Desktop: open the Rehearse page to answer on camera and see filler words,
 pace, pauses and eye contact on a timeline. In chat or Telegram, answer by text or voice note.
 Everything is analysed on this computer; recordings stay here and can be deleted."""
+
+
+def _help() -> str:
+    return _HELP.format(kinds=", ".join(coach.SCENARIOS))
 
 
 class Runtime:
@@ -53,7 +60,7 @@ def _format_plan(session: dict) -> str:
 
 def _format_history(data: dict) -> str:
     if not data["trend"]:
-        return "No rehearsals scored yet. Try: /rehearse interview <role>"
+        return "No rehearsals scored yet. Try: /rehearse job <role>"
     lines = [f"{data['practised']} rehearsals scored. First {data['first_score']} → latest {data['latest_score']}.", ""]
     for row in data["trend"]:
         fpm = f", {row['fillers_per_minute']} fillers/min" if row["fillers_per_minute"] is not None else ""
@@ -62,16 +69,20 @@ def _format_history(data: dict) -> str:
 
 
 def _command(ctx, runtime: Runtime, app: dict, raw: str) -> str:
-    mode, _, subject = (raw or "").strip().partition(" ")
-    mode = mode.lower()
-    if mode == "app":  # the Desktop page's calls (see bridge.py)
+    kind, _, subject = (raw or "").strip().partition(" ")
+    kind = kind.lower()
+    if kind == "app":  # the Desktop page's calls (see bridge.py)
         return bridge.handle(app, subject)
-    if mode == "history":
+    if kind == "history":
         return _format_history(pipeline.progress(runtime.store()))
-    if mode not in coach.MODES or not subject.strip():
-        return _HELP
     try:
-        session = pipeline.start(ctx.llm, runtime.store(), mode=mode, subject=subject)
+        scenario = coach.resolve(kind)
+    except ValueError:
+        return _help()
+    if not subject.strip():
+        return _help()
+    try:
+        session = pipeline.start(ctx.llm, runtime.store(), scenario=scenario, subject=subject)
     except (ValueError, coach.CoachError) as exc:
         return str(exc)
     return _format_plan(session)
@@ -86,7 +97,7 @@ def register(ctx):
     app = bridge.methods(ctx, runtime)
     ctx.register_command(PLUGIN_ID, lambda raw: _command(ctx, runtime, app, raw),
                          description="Practise an interview or presentation out loud",
-                         args_hint="interview <role> | presentation <topic> | history")
+                         args_hint="<job|technical|visa|pitch|demo|...> <what for> | history")
 
     skill = Path(__file__).parent / "skills" / "rehearse-coach" / "SKILL.md"
     ctx.register_skill("rehearse-coach", skill)

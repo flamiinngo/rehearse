@@ -2,9 +2,19 @@
 
 **Practise out loud. Hermes asks the questions, watches you answer, and shows you exactly what to fix.**
 
-Rehearse turns Hermes into a patient interview and presentation coach. Pick *Job interview* or
-*Presentation*, type the role or topic, and press **Start**. Hermes asks realistic questions out loud, you
-answer on camera, and a few seconds later you get a scored replay:
+Rehearse turns Hermes into a patient coach for **any interview or talk**. Pick what you are preparing
+for, type the role or topic, and press **Start**:
+
+| Interviews | Talks |
+|---|---|
+| 💼 Job · 🧠 Technical · 📊 Case | 🎤 Presentation · 🚀 Investor pitch · 🖥️ Product demo |
+| 🎓 University or scholarship · 🛂 Visa or immigration | 🤝 Sales pitch · 📚 Class talk or thesis defence |
+| 🩺 Medical or residency · 📰 Media or press · 🎙️ Podcast guest | 🥂 Speech or toast |
+
+Each one has its own questioner (a consular officer, a case interviewer, a journalist, an investor, a thesis
+committee) with its own questions, ideal answer lengths and idea of what a good answer is. Questions and
+feedback come in the language you write in. Hermes asks out loud, you answer on camera, and a few seconds
+later you get a scored replay:
 
 - **Filler words** ("um", "uh", "like,", "you know,"), each marked on the timeline at the moment you said it
 - **Pace** in words per minute, with the stretches where you rushed or dragged
@@ -20,8 +30,10 @@ scores over time.
 
 ## Who it is for
 
-Job seekers before an interview, students before a presentation or admission interview, people practising
-in a second language, founders before a pitch, anyone with a speech to give. Feedback that used to need a
+Job seekers and career changers, students facing a presentation, defence or admission interview, people
+preparing a visa interview, doctors applying for residency, founders before a pitch or a demo day,
+salespeople, anyone about to be interviewed by a journalist or a podcast host, anyone with a wedding speech,
+and people practising in a second language. Feedback that used to need a
 coach or a patient friend, available at 11pm the night before, as many times as you want.
 
 ## Use it
@@ -31,8 +43,9 @@ coach or a patient friend, available at 11pm the night before, as many times as 
 **Any chat, including Telegram and Discord:**
 
 ```
-/rehearse interview junior data analyst at a bank
-/rehearse presentation our Q3 results, 5 minutes
+/rehearse job junior data analyst at a bank
+/rehearse visa student visa for a master's in Canada
+/rehearse demo my Hermes plugin, 90 seconds
 /rehearse history
 ```
 
@@ -78,6 +91,8 @@ Settings → Plugins → Rehearse (or `plugins.entries.rehearse.settings` in `co
   (`plugin-data/rehearse`). Delete any session from the page, or delete the folder. Unused uploads are
   removed after a day.
 - **No shell commands, no background processes** beyond the analysis of a take you just recorded.
+- **Honest coaching:** for visa, immigration and admission interviews the coach helps you tell the truth
+  clearly and never suggests misrepresenting your situation.
 
 Eye contact is estimated from head direction (face landmarks), not true gaze tracking.
 

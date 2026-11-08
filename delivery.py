@@ -10,7 +10,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-FILLERS = frozenset({"um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "mm", "eh", "ehm"})
+# English plus the unambiguous hesitation sounds of French, German and Dutch.
+FILLERS = frozenset({"um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "mm", "eh", "ehm",
+                     "euh", "äh", "ähm", "öh", "uhmm"})
 # Only filler when set off by commas ("like, really"), never in "I like Python".
 COMMA_FILLERS = frozenset({"like", "so", "well", "right", "okay"})
 COMMA_PHRASES = (("you", "know"), ("i", "mean"))

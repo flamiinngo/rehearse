@@ -32,7 +32,7 @@ class FakeLLM:
 
 def test_text_answer_end_to_end_tracks_improvement_on_retry(tmp_path):
     store, llm = Store(tmp_path), FakeLLM()
-    s = pipeline.start(llm, store, mode="interview", subject="junior data analyst")
+    s = pipeline.start(llm, store, scenario="interview", subject="junior data analyst")
     assert s["questions"][1]["target_seconds"] == 1800
 
     first = pipeline.analyze(llm, store, session_id=s["id"], question_index=0, answer_text="um I, like, do data")
@@ -51,8 +51,8 @@ def test_text_answer_end_to_end_tracks_improvement_on_retry(tmp_path):
 def test_bad_inputs_are_explained(tmp_path):
     store, llm = Store(tmp_path), FakeLLM()
     with pytest.raises(ValueError):
-        pipeline.start(llm, store, mode="karaoke", subject="x")
-    s = pipeline.start(llm, store, mode="presentation", subject="Q3 results")
+        pipeline.start(llm, store, scenario="karaoke", subject="x")
+    s = pipeline.start(llm, store, scenario="presentation", subject="Q3 results")
     with pytest.raises(ValueError):
         pipeline.analyze(llm, store, session_id=s["id"], question_index=7, answer_text="x")
     with pytest.raises(ValueError):
@@ -63,7 +63,7 @@ def test_bad_inputs_are_explained(tmp_path):
 
 def test_delete_removes_session_and_recordings(tmp_path):
     store = Store(tmp_path)
-    s = pipeline.start(FakeLLM(), store, mode="interview", subject="nurse")
+    s = pipeline.start(FakeLLM(), store, scenario="interview", subject="nurse")
     rec = store.recordings_dir(s["id"])
     rec.mkdir(parents=True)
     (rec / "take-01.webm").write_bytes(b"x")
@@ -107,9 +107,9 @@ class CapturingLLM(FakeLLM):
 
 def test_interview_plan_prompt_never_carries_the_presentation_rule(tmp_path):
     llm = CapturingLLM()
-    pipeline.start(llm, Store(tmp_path), mode="interview", subject="junior data analyst")
+    pipeline.start(llm, Store(tmp_path), scenario="interview", subject="junior data analyst")
     assert "Deliver your presentation" not in llm.last_instructions
-    pipeline.start(llm, Store(tmp_path), mode="presentation", subject="Q3 results")
+    pipeline.start(llm, Store(tmp_path), scenario="presentation", subject="Q3 results")
     assert "Deliver your presentation" in llm.last_instructions
 
 
@@ -122,7 +122,7 @@ class RateLimitedFeedbackLLM(FakeLLM):
 
 def test_model_outage_keeps_the_measured_delivery_and_says_why(tmp_path, monkeypatch):
     store, llm = Store(tmp_path), RateLimitedFeedbackLLM()
-    s = pipeline.start(llm, store, mode="interview", subject="nurse")
+    s = pipeline.start(llm, store, scenario="interview", subject="nurse")
     take = tmp_path / "take.webm"
     take.write_bytes(b"x")
     measured = {"measured": "audio", "score": 71, "moments": [], "scores": {"pace": 71}}
@@ -136,7 +136,7 @@ def test_model_outage_keeps_the_measured_delivery_and_says_why(tmp_path, monkeyp
 
 def test_text_answer_with_the_model_down_is_a_readable_error(tmp_path):
     store, llm = Store(tmp_path), RateLimitedFeedbackLLM()
-    s = pipeline.start(llm, store, mode="interview", subject="nurse")
+    s = pipeline.start(llm, store, scenario="interview", subject="nurse")
     with pytest.raises(coach.CoachError, match="busy"):
         pipeline.analyze(llm, store, session_id=s["id"], question_index=0, answer_text="I care for patients")
 

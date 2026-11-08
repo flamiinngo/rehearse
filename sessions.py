@@ -32,10 +32,10 @@ class Store:
     def recordings_dir(self, session_id: str) -> Path:
         return self.root / "recordings" / _safe_id(session_id)
 
-    def create(self, *, mode: str, subject: str, details: str, plan: dict) -> dict:
+    def create(self, *, scenario: str, mode: str, subject: str, details: str, plan: dict) -> dict:
         session = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6],
-            "created_at": time.time(), "mode": mode, "subject": subject, "details": details,
+            "created_at": time.time(), "scenario": scenario, "mode": mode, "subject": subject, "details": details,
             "title": plan.get("title") or subject, "opening": plan.get("opening", ""),
             "questions": plan["questions"], "attempts": [],
         }
@@ -108,6 +108,7 @@ def summarize(session: dict) -> dict:
     fillers = [a["delivery"]["fillers_per_minute"] for a in attempts if a.get("delivery")]
     return {
         "id": session["id"], "created_at": session["created_at"], "mode": session["mode"],
+        "scenario": session.get("scenario") or ("job" if session["mode"] == "interview" else "presentation"),
         "title": session.get("title", session["subject"]), "subject": session["subject"],
         "questions": len(session.get("questions", [])), "answered": len(best), "attempts": len(attempts),
         "score": avg, "fillers_per_minute": round(sum(fillers) / len(fillers), 2) if fillers else None,

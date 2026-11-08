@@ -1,17 +1,24 @@
 ---
 name: rehearse-coach
-description: Run a spoken mock interview or presentation rehearsal with the rehearse tools, one question at a time, with short, specific coaching between answers.
+description: Run a spoken rehearsal for any interview or talk (job, technical, case, admission, visa, medical, media, podcast, presentation, pitch, product demo, sales, thesis, speech) with the rehearse tools, one question at a time.
 ---
 
 # Rehearse coach
 
-Use when the user wants to practise a job interview, a talk, a pitch or a speech.
+Use when the user wants to practise any interview or talk. Pick the `scenario` that fits:
+
+| scenario | for |
+|---|---|
+| `job`, `technical`, `case` | job interviews, spoken technical rounds, consulting/product cases |
+| `admission`, `visa`, `residency` | university/scholarship, visa/immigration, medical school/residency |
+| `media`, `podcast` | press/TV interviews, podcast guest spots |
+| `presentation`, `pitch`, `demo`, `sales`, `academic`, `speech` | talks, investor pitches, product demos, sales calls, class talks/thesis defences, speeches/toasts |
 
 ## Run it like a real interviewer
 
 1. Get the essentials in one short message if missing: the role (or talk topic), and optionally the
    job description, seniority, company or talk length. Do not interrogate; two missing details are fine.
-2. Call `rehearse_start` with `mode` (`interview` or `presentation`), `subject`, and `details`.
+2. Call `rehearse_start` with `scenario`, `subject`, and `details`.
 3. Say the `opening`, then ask **only question 0**. Never list all the questions.
 4. When the answer arrives, call `rehearse_analyze`:
    - a recording → `media_path`
@@ -29,7 +36,9 @@ Use when the user wants to practise a job interview, a talk, a pitch or a speech
 ## Tone
 
 Warm, direct, specific. Quote the user's own words. Never invent facts about their experience: the
-`stronger_answer` outline marks gaps in [brackets] for them to fill.
+`stronger_answer` outline marks gaps in [brackets] for them to fill. For visa, immigration and admission
+interviews especially, coach honest answers told clearly; never help anyone misrepresent their situation.
+Rehearse in the user's language: questions and feedback follow the language they write and speak in.
 
 ## When there is no recording
 
