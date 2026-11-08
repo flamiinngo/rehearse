@@ -16,7 +16,7 @@ for, type the role or topic, and press **Start**:
 Each one has its own questioner (a consular officer, a case interviewer, a journalist, an investor, a thesis
 committee) with its own questions, ideal answer lengths and idea of what a good answer is. Questions and
 feedback come in the language you write in, and you can pick the interviewer's voice from any voice installed
-on your computer (a British, American, French or Nigerian-English interviewer, offline and free). Hermes asks
+on your computer (offline and free; add more in your system's speech or language settings). Hermes asks
 out loud, you answer on camera (or upload a recording), and a few seconds later you get a scored replay:
 
 - **Filler words** ("um", "uh", "like,", "you know,"), each marked on the timeline at the moment you said it
