@@ -290,8 +290,9 @@ REPORT_SCHEMA = {
 _REPORT_INSTRUCTIONS = """You are the {asker} debriefing a full practice session of {what} about: {subject}.
 You get every question, the candidate's answer transcript, and the measured delivery for each answer.
 
+The measured interview score is {score}/100.
 Write the debrief a candid, kind hiring panel would give:
-- verdict: strong (would advance), promising (close, needs polish) or not_yet.
+- verdict: strong (would advance, score 75+), promising (close, needs polish, 55-74) or not_yet (below 55).
 - headline: one sentence on how the whole session came across.
 - strengths: the 3 strongest things across ALL answers, specific, quoting the candidate where possible.
 - fixes: the 3 changes that would most improve the next real {what_short}, most important first; use the
@@ -302,7 +303,14 @@ Write the debrief a candid, kind hiring panel would give:
 Write in the language of the answers. Plain sentences, no markdown."""
 
 
-def interview_report(llm, *, scenario: str, subject: str, answers: list[dict]) -> dict:
+def verdict_for(score: int | None) -> str | None:
+    """The verdict follows the measured score, so the badge never contradicts the number beside it."""
+    if score is None:
+        return None
+    return "strong" if score >= 75 else "promising" if score >= 55 else "not_yet"
+
+
+def interview_report(llm, *, scenario: str, subject: str, answers: list[dict], score: int | None = None) -> dict:
     s = SCENARIOS[scenario]
     body = "\n\n".join(
         f"Q{i}: {a['question']}\nAnswer: {a['transcript'] or '(no answer)'}\nDelivery: {json.dumps(a['numbers'])}"
@@ -310,7 +318,8 @@ def interview_report(llm, *, scenario: str, subject: str, answers: list[dict]) -
     result = _call(
         llm,
         instructions=_REPORT_INSTRUCTIONS.format(asker=s.asker, what=s.what, what_short=s.label.lower(),
-                                                 subject=subject, integrity=_INTEGRITY),
+                                                 subject=subject, integrity=_INTEGRITY,
+                                                 score="unknown" if score is None else score),
         input=[{"type": "text", "text": body}], json_schema=REPORT_SCHEMA, schema_name="interview_report",
         purpose="rehearse.report", temperature=0.3, max_tokens=1400,
     )
@@ -318,4 +327,5 @@ def interview_report(llm, *, scenario: str, subject: str, answers: list[dict]) -
     if not isinstance(data, dict) or data.get("verdict") not in ("strong", "promising", "not_yet"):
         raise CoachError("The model did not return a debrief. Try again or switch models.")
     data["best_question"] = max(0, min(int(data.get("best_question") or 0), len(answers) - 1))
+    data["verdict"] = verdict_for(score) or data["verdict"]
     return data

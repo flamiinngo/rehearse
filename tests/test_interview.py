@@ -89,3 +89,14 @@ def test_live_check_on_a_real_face(tmp_path):
     assert out["face"] is True and out["framing"] in face.CUES or out["framing"] == "ok"
     blank = cv2.imencode(".jpg", np.zeros((240, 320, 3), np.uint8))[1].tobytes()
     assert face.check_frame(blank, model)["cue"] == "We can't see your face"
+
+
+@pytest.mark.parametrize("score, verdict", [(36, "not_yet"), (54, "not_yet"), (55, "promising"), (74, "promising"), (75, "strong")])
+def test_the_verdict_never_contradicts_the_score(score, verdict):
+    assert coach.verdict_for(score) == verdict
+
+
+def test_debrief_verdict_is_overridden_by_the_measured_score():
+    report = coach.interview_report(DebriefLLM(), scenario="job", subject="x",
+                                    answers=[{"question": "q", "transcript": "a", "numbers": {}}], score=36)
+    assert report["verdict"] == "not_yet"

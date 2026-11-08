@@ -911,7 +911,7 @@ function Report({ session, scored, cache, onOpen, onDone }) {
       ]
     }),
     el('div', { display: 'flex', gap: 12, flexWrap: 'wrap' }, [
-      h(Stat, { key: 'f', label: 'Filler words / min', value: numbers.fillers_per_minute }),
+      h(Stat, { key: 'f', label: 'Filler words / min', value: numbers.fillers_per_minute != null ? numbers.fillers_per_minute.toFixed(1) : null }),
       h(Stat, { key: 'w', label: 'Pace (words / min)', value: numbers.wpm && Math.round(numbers.wpm) }),
       h(Stat, { key: 'e', label: 'Eye contact', value: pct(numbers.eye_contact) }),
       h(Stat, { key: 'l', label: 'Live presence', value: pct(numbers.live_facing) })

@@ -116,7 +116,7 @@ def methods(ctx, runtime) -> dict:
             if not answers:
                 raise ValueError("Answer at least one question for a debrief.")
             debrief = coach.interview_report(ctx.llm, scenario=pipeline.scenario_of(session),
-                                             subject=session["subject"], answers=answers)
+                                             subject=session["subject"], answers=answers, score=numbers["score"])
             report = {"debrief": debrief, "numbers": numbers}
             store.update(session_id, report=report)
             return report
