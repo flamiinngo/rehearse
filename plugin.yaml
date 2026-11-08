@@ -1,0 +1,35 @@
+name: rehearse
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: >-
+  Practise a job interview or a presentation out loud. Hermes asks the questions, you answer on camera,
+  and you get a scored replay: filler words, pace, pauses, answer length and eye contact on a timeline,
+  plus content feedback with a stronger-answer outline. Analysis runs on your computer.
+author: flamiinngo
+license: MIT
+homepage: https://github.com/flamiinngo/rehearse
+requires_hermes: ">=0.23.0"
+tags: [voice, coaching, interview, presentation, desktop]
+provides_tools:
+  - rehearse_start
+  - rehearse_analyze
+  - rehearse_progress
+python_dependencies:
+  # Same engine and pins as Hermes's own [voice] extra; PyAV 19 breaks faster-whisper 1.2.1 (#135245).
+  - "faster-whisper>=1.1,<2; (platform_machine != 'ARM64' or sys_platform != 'win32') and (platform_machine != 'x86_64' or platform_system != 'Darwin') and sys_platform != 'android'"
+  - "av>=12,<19; (platform_machine != 'ARM64' or sys_platform != 'win32') and (platform_machine != 'x86_64' or platform_system != 'Darwin') and sys_platform != 'android'"
+  - "opencv-python-headless>=4.10,<6"
+config_schema:
+  whisper_model:
+    type: str
+    default: base
+    description: "Speech model: tiny (fastest), base (default), small (most accurate, slower). Downloaded once."
+  language:
+    type: str
+    default: ""
+    description: "Spoken language code such as en, fr, es. Empty = detect automatically."
+  keep_recordings:
+    type: bool
+    default: true
+    description: "Keep your recordings so you can replay them. Turn off to delete each one after scoring."
