@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import coach, face, jobs, pipeline, speech
+from . import coach, face, jobs, pipeline, speech, voice
 from .sessions import SessionNotFound, summarize
 
 logger = logging.getLogger(__name__)
@@ -106,8 +106,11 @@ def methods(ctx, runtime) -> dict:
     def scenarios(params, **_):
         return {"scenarios": coach.catalog()}
 
+    def voice_speak(params, **_):
+        return voice.speak(ctx, runtime.store().root, _text(params, "text", voice.MAX_CHARS, required=True))
+
     return {
-        "scenarios": scenarios, "engine.prepare": engine_prepare, "plan.create": plan_create, "take.analyze": take_analyze,
+        "scenarios": scenarios, "voice.speak": voice_speak, "engine.prepare": engine_prepare, "plan.create": plan_create, "take.analyze": take_analyze,
         "job.status": job_status, "sessions.list": sessions_list, "session.get": session_get,
         "session.delete": session_delete,
     }

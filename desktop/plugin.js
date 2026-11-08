@@ -331,28 +331,52 @@ function pickVoice(voices, uri) {
     || voices.find(v => /^en/i.test(v.lang))
 }
 
-function speak(text, enabled, uri = '') {
+// The default interviewer voice is Hermes's own text-to-speech (natural neural voices, or the user's
+// provider). A system voice can be picked instead; it is also the fallback when Hermes cannot speak.
+let speaking = null
+
+function stopSpeech() {
+  window.speechSynthesis?.cancel()
+  if (speaking) speaking.pause()
+  speaking = null
+}
+
+function speakSystem(text, uri) {
   const synth = window.speechSynthesis
-  if (!enabled || !synth || !text) return
-  synth.cancel()
+  if (!synth) return
   const u = new SpeechSynthesisUtterance(text)
   const voice = pickVoice(synth.getVoices(), uri)
   if (voice) u.voice = voice
-  u.rate = 1
   synth.speak(u)
+}
+
+let speechTurn = 0
+
+async function speak(text, enabled, uri = '') {
+  if (!enabled || !text) return
+  stopSpeech()
+  if (uri) return speakSystem(text, uri)
+  const turn = ++speechTurn
+  try {
+    const { audio, mime } = await rpc('voice.speak', { text })
+    if (turn !== speechTurn) return
+    speaking = new Audio(`data:${mime};base64,${audio}`)
+    await speaking.play()
+  } catch {
+    if (turn === speechTurn) speakSystem(text, '')
+  }
 }
 
 const voiceLabel = v => `${v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*-\s*.*$/, '')} · ${v.lang}`
 
 function VoicePicker({ voices, value, onChange }) {
-  if (!voices.length) return null
   const sorted = [...voices].sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name))
   return h('select', {
     'aria-label': 'Interviewer voice', title: 'Interviewer voice', value, onChange: e => onChange(e.target.value),
     style: { ...S.input, width: 'auto', maxWidth: 260, padding: '5px 8px', fontSize: 12.5 },
     children: [
-      h('option', { key: 'auto', value: '', children: 'Interviewer voice: automatic' }),
-      ...sorted.map(v => h('option', { key: v.voiceURI, value: v.voiceURI, children: voiceLabel(v) }))
+      h('option', { key: 'hermes', value: '', children: 'Interviewer voice: natural (Hermes)' }),
+      ...sorted.map(v => h('option', { key: v.voiceURI, value: v.voiceURI, children: `System · ${voiceLabel(v)}` }))
     ]
   })
 }
@@ -387,7 +411,7 @@ function Room({ session, index, onResult, onExit }) {
   useEffect(() => {
     const opening = index === 0 && session.opening ? `${session.opening} ` : ''
     speak(opening + q.question, voice, voiceUri)
-    return () => window.speechSynthesis?.cancel()
+    return () => stopSpeech()
   }, [index])
   useEffect(() => () => clearInterval(timer.current), [])
 
@@ -409,7 +433,7 @@ function Room({ session, index, onResult, onExit }) {
   }
 
   const begin = () => {
-    window.speechSynthesis?.cancel()
+    stopSpeech()
     chunks.current = []
     const mime = pickMime()
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 900000 } : undefined)
@@ -452,7 +476,7 @@ function Room({ session, index, onResult, onExit }) {
         el('span', S.muted, `${session.title}  ·  Question ${index + 1} of ${session.questions.length}`),
         h('div', { style: S.row, children: [
           voice && h(VoicePicker, { voices, value: voiceUri, onChange: chooseVoice }),
-          h(Button, { variant: 'ghost', size: 'sm', onClick: () => { setVoice(!voice); window.speechSynthesis?.cancel() }, children: voice ? '🔊 Voice on' : '🔈 Voice off' }),
+          h(Button, { variant: 'ghost', size: 'sm', onClick: () => { setVoice(!voice); stopSpeech() }, children: voice ? '🔊 Voice on' : '🔈 Voice off' }),
           h(Button, { variant: 'ghost', size: 'sm', onClick: onExit, children: 'Finish' })
         ] })
       ]
