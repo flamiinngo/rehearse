@@ -2,6 +2,8 @@
 
 **Practise out loud. Hermes asks the questions, watches you answer, and shows you exactly what to fix.**
 
+![Pick what you are preparing for](docs/scenarios.jpg)
+
 Rehearse turns Hermes into a patient coach for **any interview or talk**. Pick what you are preparing
 for, type the role or topic, and press **Start**:
 
@@ -24,6 +26,8 @@ later you get a scored replay:
 - **Content feedback**: what worked, what to fix first, an outline of a stronger answer built only from what
   you said (gaps are left in `[brackets]` for you to fill, never invented), and the follow-up question you
   are most likely to get next
+
+![The practice room: Hermes asks a demo question with a tip and a target length](docs/practice-room.jpg)
 
 Press **Try this one again** and Rehearse tells you how many points you gained. Your history shows your
 scores over time.
@@ -60,6 +64,9 @@ hermes plugins install rehearse
 ```
 
 Hermes asks once to install the speech and face-detection packages. Requires Hermes **0.23.0** or newer.
+
+Then, in Hermes Desktop, open **Capabilities → Plugins**, find **Rehearse** and switch it **On**: Hermes
+keeps every plugin's Desktop page off until you choose to turn it on. **Rehearse** appears in the sidebar.
 
 | Platform | Status |
 |---|---|
