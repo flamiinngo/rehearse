@@ -311,15 +311,50 @@ function useCamera(active) {
   return { stream, error }
 }
 
-function speak(text, enabled) {
+// The interviewer speaks with a voice installed on this computer: free, offline, many languages.
+function useVoices() {
+  const [voices, setVoices] = useState(() => window.speechSynthesis?.getVoices() || [])
+  useEffect(() => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    const update = () => setVoices(synth.getVoices())
+    update()
+    synth.addEventListener('voiceschanged', update)
+    return () => synth.removeEventListener('voiceschanged', update)
+  }, [])
+  return voices
+}
+
+function pickVoice(voices, uri) {
+  return voices.find(v => v.voiceURI === uri)
+    || voices.find(v => /^en(-|_)/i.test(v.lang) && /natural|neural|online/i.test(v.name))
+    || voices.find(v => /^en/i.test(v.lang))
+}
+
+function speak(text, enabled, uri = '') {
   const synth = window.speechSynthesis
   if (!enabled || !synth || !text) return
   synth.cancel()
   const u = new SpeechSynthesisUtterance(text)
-  const voice = synth.getVoices().find(v => /en(-|_)/i.test(v.lang) && /natural|neural|online/i.test(v.name)) || synth.getVoices().find(v => /^en/i.test(v.lang))
+  const voice = pickVoice(synth.getVoices(), uri)
   if (voice) u.voice = voice
   u.rate = 1
   synth.speak(u)
+}
+
+const voiceLabel = v => `${v.name.replace(/^(Microsoft|Google|Apple)\s+/, '').replace(/\s*-\s*.*$/, '')} · ${v.lang}`
+
+function VoicePicker({ voices, value, onChange }) {
+  if (!voices.length) return null
+  const sorted = [...voices].sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name))
+  return h('select', {
+    'aria-label': 'Interviewer voice', title: 'Interviewer voice', value, onChange: e => onChange(e.target.value),
+    style: { ...S.input, width: 'auto', maxWidth: 260, padding: '5px 8px', fontSize: 12.5 },
+    children: [
+      h('option', { key: 'auto', value: '', children: 'Interviewer voice: automatic' }),
+      ...sorted.map(v => h('option', { key: v.voiceURI, value: v.voiceURI, children: voiceLabel(v) }))
+    ]
+  })
 }
 
 function pickMime() {
@@ -331,6 +366,13 @@ function Room({ session, index, onResult, onExit }) {
   const q = session.questions[index]
   const { stream, error } = useCamera(true)
   const [voice, setVoice] = useState(true)
+  const voices = useVoices()
+  const [voiceUri, setVoiceUri] = useState(() => plugin.storage.get('voice', ''))
+  const chooseVoice = uri => {
+    setVoiceUri(uri)
+    plugin.storage.set('voice', uri)
+    speak("Hi, I'll be asking the questions today.", true, uri)
+  }
   const [phase, setPhase] = useState('ready') // ready | recording | working | failed
   const [elapsed, setElapsed] = useState(0)
   const [stage, setStage] = useState('')
@@ -344,7 +386,7 @@ function Room({ session, index, onResult, onExit }) {
   useEffect(() => { if (video.current && stream) video.current.srcObject = stream }, [stream])
   useEffect(() => {
     const opening = index === 0 && session.opening ? `${session.opening} ` : ''
-    speak(opening + q.question, voice)
+    speak(opening + q.question, voice, voiceUri)
     return () => window.speechSynthesis?.cancel()
   }, [index])
   useEffect(() => () => clearInterval(timer.current), [])
@@ -409,6 +451,7 @@ function Room({ session, index, onResult, onExit }) {
       children: [
         el('span', S.muted, `${session.title}  ·  Question ${index + 1} of ${session.questions.length}`),
         h('div', { style: S.row, children: [
+          voice && h(VoicePicker, { voices, value: voiceUri, onChange: chooseVoice }),
           h(Button, { variant: 'ghost', size: 'sm', onClick: () => { setVoice(!voice); window.speechSynthesis?.cancel() }, children: voice ? '🔊 Voice on' : '🔈 Voice off' }),
           h(Button, { variant: 'ghost', size: 'sm', onClick: onExit, children: 'Finish' })
         ] })
@@ -419,7 +462,7 @@ function Room({ session, index, onResult, onExit }) {
       children: [
         el('div', { fontSize: 20, fontWeight: 600, lineHeight: 1.35 }, q.question),
         el('div', S.muted, `💡 ${q.tip}   ·   aim for about ${fmtTime(target)}`),
-        h('button', { type: 'button', onClick: () => speak(q.question, true), style: { alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, color: 'var(--ui-accent)', cursor: 'pointer', fontSize: 13 }, children: 'Hear the question again' })
+        h('button', { type: 'button', onClick: () => speak(q.question, true, voiceUri), style: { alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, color: 'var(--ui-accent)', cursor: 'pointer', fontSize: 13 }, children: 'Hear the question again' })
       ]
     }),
     error
