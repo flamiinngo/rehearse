@@ -26,7 +26,7 @@ MODEL_URL = (
 MODEL_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
 
 SAMPLE_FPS = 2.0
-FRAME_WIDTH = 320
+FRAME_WIDTH = 480  # wide enough for the pupil check, still about 20 ms a frame
 YAW_LIMIT = 0.32
 PITCH_RANGE = (0.30, 0.78)
 
@@ -64,8 +64,45 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def classify(face_row) -> str:
-    """``facing`` or ``away`` for one YuNet detection row (x, y, w, h, 5 landmarks, score)."""
+GAZE_LIMIT = 0.5  # both pupils past this share of the eye half-width, the same way, counts as looking away
+
+
+def pupil_offset(gray, face_row) -> float | None:
+    """Mean horizontal pupil offset across both eyes, -1..1 (0 = centred), or None when unreadable.
+
+    Each eye is a tight box around YuNet's eye landmark; the pupil is the darkest blob in it. Glare,
+    closed eyes, a box off the frame or eyes that disagree on direction return None, and the caller falls
+    back to head direction: a false "look at the camera" is worse than a missed glance.
+    """
+    rex, rey, lex, ley = (float(v) for v in face_row[4:8])
+    eye_dist = abs(lex - rex)
+    if eye_dist < 18:  # too small to see a pupil
+        return None
+    half_w, half_h = eye_dist * 0.21, eye_dist * 0.09
+    offsets = []
+    for ex, ey in ((rex, rey), (lex, ley)):
+        x0, x1, y0, y1 = int(ex - half_w), int(ex + half_w), int(ey - half_h), int(ey + half_h)
+        if x0 < 0 or y0 < 0 or x1 >= gray.shape[1] or y1 >= gray.shape[0]:
+            return None
+        box = gray[y0:y1, x0:x1].astype("float32")
+        if box.size == 0 or float(box.max() - box.min()) < 35:  # no contrast: closed, blurred or glare
+            return None
+        dark = box <= float(box.min()) + (float(box.max()) - float(box.min())) * 0.18
+        cols = dark.sum(axis=0)
+        if cols.sum() < 3:
+            return None
+        centre = float((cols * range(len(cols))).sum() / cols.sum())
+        offsets.append((centre - (len(cols) - 1) / 2) / ((len(cols) - 1) / 2))
+    if offsets[0] * offsets[1] < 0 and max(abs(o) for o in offsets) > GAZE_LIMIT:
+        return None  # one eye says left, the other right: not a gaze, a misread
+    return sum(offsets) / len(offsets)
+
+
+def classify(face_row, gray=None) -> str:
+    """``facing`` or ``away`` for one YuNet detection row (x, y, w, h, 5 landmarks, score).
+
+    Head direction first; when ``gray`` (the frame in grayscale) is given, the pupils must also sit near the
+    centre of the eyes, so facing the camera while reading notes counts as looking away."""
     rex, rey, lex, ley, nx, ny, rmx, rmy, lmx, lmy = (float(v) for v in face_row[4:14])
     eye_mid_x, eye_mid_y = (rex + lex) / 2, (rey + ley) / 2
     eye_dist = max(abs(lex - rex), 1.0)
@@ -73,6 +110,9 @@ def classify(face_row) -> str:
     mouth_mid_y = (rmy + lmy) / 2
     pitch = (ny - eye_mid_y) / max(mouth_mid_y - eye_mid_y, 1.0)
     facing = abs(yaw) <= YAW_LIMIT and PITCH_RANGE[0] <= pitch <= PITCH_RANGE[1]
+    if facing and gray is not None:
+        gaze = pupil_offset(gray, face_row)
+        facing = gaze is None or abs(gaze) <= GAZE_LIMIT
     return "facing" if facing else "away"
 
 
@@ -108,7 +148,7 @@ def sample_video(path: str, model_path: Path) -> list[FaceSample]:
                 samples.append(FaceSample(t, "none"))
                 continue
             largest = max(faces, key=lambda f: f[2] * f[3])
-            samples.append(FaceSample(t, classify(largest)))
+            samples.append(FaceSample(t, classify(largest, cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))))
     return samples
 
 
@@ -164,7 +204,7 @@ def check_frame(jpeg: bytes, model_path: Path) -> dict:
         framing = "ok"
     region = img[max(0, int(y)):int(y + fh), max(0, int(x)):int(x + fw)]
     light = "dark" if region.size and float(cv2.cvtColor(region, cv2.COLOR_BGR2GRAY).mean()) < 60 else "ok"
-    facing = classify(f) == "facing"
+    facing = classify(f, cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)) == "facing"
     problem = next((k for k, bad in (("away", not facing), ("cut_off", framing == "cut_off"),
                                       ("too_close", framing == "too_close"), ("too_far", framing == "too_far"),
                                       ("off_centre", framing == "off_centre"), ("dark", light == "dark")) if bad), None)

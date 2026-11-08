@@ -110,8 +110,9 @@ def methods(ctx, runtime) -> dict:
             numbers = interview_numbers(session)
             takes = {a["question_index"]: a for a in session.get("attempts", [])}
             answers = [{"question": q["question"], "transcript": (takes.get(i) or {}).get("transcript", ""),
-                        "numbers": {k: v for k, v in (takes.get(i) or {}).get("delivery", {}).items()
-                                    if k in ("filler_count", "wpm", "facing_ratio", "duration")}}
+                        "numbers": {**{k: v for k, v in (takes.get(i) or {}).get("delivery", {}).items()
+                                       if k in ("filler_count", "wpm", "facing_ratio", "duration")},
+                                    "head_movement": ((takes.get(i) or {}).get("presence") or {}).get("steadiness")}}
                        for i, q in enumerate(session["questions"]) if i in takes]
             if not answers:
                 raise ValueError("Answer at least one question for a debrief.")

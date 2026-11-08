@@ -133,7 +133,7 @@ def latest_by_question(session: dict) -> dict[int, dict]:
 def interview_numbers(session: dict) -> dict:
     """Aggregates across the latest answer to every question: the measured half of the final account."""
     takes = latest_by_question(session)
-    rows, fillers, wpm, eye, live, cues = [], [], [], [], [], {}
+    rows, fillers, wpm, eye, live, cues, steadiness = [], [], [], [], [], {}, []
     for i, q in enumerate(session.get("questions", [])):
         a = takes.get(i)
         if a is None:
@@ -154,10 +154,23 @@ def interview_numbers(session: dict) -> dict:
             live.append(p["facing_ratio"])
         for cue, n in (p.get("cues") or {}).items():
             cues[cue] = cues.get(cue, 0) + n
+        if p.get("steadiness"):
+            steadiness.append(p["steadiness"])
     scored = [r["overall"] for r in rows if r.get("answered") and r.get("overall") is not None]
     avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else None  # noqa: E731
     return {
         "questions": rows, "answered": len(scored), "score": round(sum(scored) / len(scored)) if scored else None,
         "fillers_per_minute": avg(fillers), "wpm": avg(wpm), "eye_contact": avg(eye), "live_facing": avg(live),
         "top_cues": sorted(cues.items(), key=lambda kv: -kv[1])[:3],
+        "composure": _composure(steadiness),
     }
+
+
+def _composure(per_answer: list[str]) -> str | None:
+    """The interview's head movement: steady unless most answers were not."""
+    if not per_answer:
+        return None
+    restless = sum(1 for s in per_answer if s != "steady")
+    if restless * 2 <= len(per_answer):
+        return "steady"
+    return "fidgety" if sum(1 for s in per_answer if s == "fidgety") * 2 > len(per_answer) else "a little restless"

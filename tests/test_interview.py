@@ -100,3 +100,39 @@ def test_debrief_verdict_is_overridden_by_the_measured_score():
     report = coach.interview_report(DebriefLLM(), scenario="job", subject="x",
                                     answers=[{"question": "q", "transcript": "a", "numbers": {}}], score=36)
     assert report["verdict"] == "not_yet"
+
+
+@pytest.mark.parametrize("per_answer, overall", [
+    (["steady", "steady", "fidgety"], "steady"), (["fidgety", "fidgety", "steady"], "fidgety"),
+    (["a little restless", "fidgety", "steady"], "a little restless"), ([], None)])
+def test_composure_reflects_most_answers(per_answer, overall):
+    from rehearse.sessions import _composure
+    assert _composure(per_answer) == overall
+
+
+def _eyes(pupil_shift, left_shift=None, glare=False):
+    """A grey face patch with two eyes; pupils shifted by a share of the eye half-width checked."""
+    import numpy as np
+    img = np.full((240, 320), 150, np.uint8)
+    row = [60, 40, 200, 180, 120, 100, 200, 100, 160, 140, 130, 170, 190, 170, 0.9]
+    eye_dist = 80
+    for (ex, ey), shift in (((120, 100), pupil_shift), ((200, 100), pupil_shift if left_shift is None else left_shift)):
+        img[ey - 8:ey + 8, ex - 17:ex + 17] = 255 if not glare else 150
+        px = int(ex + shift * eye_dist * 0.21)
+        if not glare:
+            img[ey - 5:ey + 5, px - 4:px + 4] = 20
+    return img, row
+
+
+def test_gaze_reads_centred_and_sideways_pupils():
+    img, row = _eyes(0.0)
+    assert abs(face.pupil_offset(img, row)) < 0.2 and face.classify(row, img) == "facing"
+    img, row = _eyes(0.8)
+    assert face.pupil_offset(img, row) > face.GAZE_LIMIT and face.classify(row, img) == "away"
+
+
+def test_gaze_defers_to_head_direction_when_unsure():
+    img, row = _eyes(0.0, glare=True)  # no contrast in the eyes
+    assert face.pupil_offset(img, row) is None and face.classify(row, img) == "facing"
+    img, row = _eyes(0.8, left_shift=-0.8)  # eyes disagree: a misread, not a gaze
+    assert face.pupil_offset(img, row) is None and face.classify(row, img) == "facing"

@@ -81,7 +81,8 @@ def make_handlers(ctx, runtime):
                           for i, q in enumerate(s["questions"])],
             "how_to_run": "Say the opening, then ask question 0. Wait for the answer, call rehearse_analyze, share "
                           "the 2-3 most useful points, offer a retry or move on to the next question.",
-            "desktop": "In Hermes Desktop the user can open the Rehearse page (/rehearse) to answer on camera.",
+            "desktop": ("In Hermes Desktop the user can do this as a live interview on camera: first time, open "
+                        "Capabilities → Plugins and switch Rehearse On, then click Rehearse in the sidebar."),
         })
 
     def analyze(args: dict, **_):

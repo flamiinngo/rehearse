@@ -677,10 +677,10 @@ const LIVE_EVERY_MS = 1200
 async function snapshot(video) {
   if (!video?.videoWidth) return null
   const c = document.createElement('canvas')
-  c.width = 320
-  c.height = Math.round((320 * video.videoHeight) / video.videoWidth)
+  c.width = 480 // matches the analysis width, enough detail for the pupil check
+  c.height = Math.round((480 * video.videoHeight) / video.videoWidth)
   c.getContext('2d').drawImage(video, 0, 0, c.width, c.height)
-  return c.toDataURL('image/jpeg', 0.7)
+  return c.toDataURL('image/jpeg', 0.8)
 }
 
 function Interview({ session, onFinish }) {
@@ -914,7 +914,8 @@ function Report({ session, scored, cache, onOpen, onDone }) {
       h(Stat, { key: 'f', label: 'Filler words / min', value: numbers.fillers_per_minute != null ? numbers.fillers_per_minute.toFixed(1) : null }),
       h(Stat, { key: 'w', label: 'Pace (words / min)', value: numbers.wpm && Math.round(numbers.wpm) }),
       h(Stat, { key: 'e', label: 'Eye contact', value: pct(numbers.eye_contact) }),
-      h(Stat, { key: 'l', label: 'Live presence', value: pct(numbers.live_facing) })
+      h(Stat, { key: 'l', label: 'Live presence', value: pct(numbers.live_facing) }),
+      h(Stat, { key: 'c', label: 'Composure', value: numbers.composure && numbers.composure[0].toUpperCase() + numbers.composure.slice(1) })
     ], { key: 'stats' }),
     h('div', { key: 'coach', style: S.grid2, children: [
       h('div', { style: S.card, children: h(List, { title: 'Your strengths', items: debrief.strengths, icon: '✓' }) }),

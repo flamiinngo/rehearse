@@ -21,7 +21,8 @@ _HELP = """Rehearse: practise out loud, get a scored replay.
 
 Kinds: {kinds}
 
-Best in Hermes Desktop: open the Rehearse page to answer on camera and see filler words,
+Best in Hermes Desktop, as a live interview on camera. First time? Open Capabilities → Plugins,
+switch Rehearse On, then click Rehearse in the sidebar. You'll see filler words,
 pace, pauses and eye contact on a timeline. In chat or Telegram, answer by text or voice note.
 Everything is analysed on this computer; recordings stay here and can be deleted."""
 

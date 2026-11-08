@@ -40,6 +40,15 @@ out loud, you answer on camera (or upload a recording), and a few seconds later 
 Press **Try this one again** and Rehearse tells you how many points you gained. Your history shows your
 scores over time.
 
+## Quick start
+
+1. `hermes plugins install rehearse` (Hermes asks once to download the speech and face-detection packages).
+2. In Hermes Desktop, open **Capabilities → Plugins** and switch **Rehearse** **On**. Hermes keeps every
+   plugin's page off until you choose to turn it on.
+3. Click **Rehearse** in the sidebar, pick what you're preparing for, press **Start interview**.
+
+Tip: feedback is written by the model you use in Hermes, so a capable model gives sharper coaching.
+
 ## Who it is for
 
 Job seekers and career changers, students facing a presentation, defence or admission interview, people
@@ -78,8 +87,8 @@ keeps every plugin's Desktop page off until you choose to turn it on. **Rehearse
 
 | Platform | Status |
 |---|---|
-| Windows (x64), Linux, macOS on Apple Silicon | Full analysis |
-| macOS on Intel, Windows on ARM | Content feedback only: Hermes's local speech engine (faster-whisper) has no build for these, the same limit Hermes's own voice features have |
+| Windows (x64), Linux, macOS (Apple Silicon) | Full analysis: every platform Hermes Desktop supports |
+| Windows on ARM | Content feedback only: Hermes's local speech engine (faster-whisper) has no build there, the same limit Hermes's own voice features have |
 
 ## Settings
 
@@ -109,7 +118,7 @@ Settings → Plugins → Rehearse (or `plugins.entries.rehearse.settings` in `co
 - **Honest coaching:** for visa, immigration and admission interviews the coach helps you tell the truth
   clearly and never suggests misrepresenting your situation.
 
-Eye contact is estimated from head direction (face landmarks), not true gaze tracking.
+Eye contact combines head direction with where your pupils point, so facing the camera while reading your notes still counts as looking away; when the eyes can't be read (glare, low light, far from the camera) it falls back to head direction rather than guess. Live interviews also report composure: how steady you held your head across the answers. Posture and hand gestures are not measured yet.
 
 ## How it works
 

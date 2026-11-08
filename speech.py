@@ -19,7 +19,7 @@ _run = threading.Lock()  # live interviews analyse answers in parallel; the mode
 
 
 class SpeechUnavailable(RuntimeError):
-    """faster-whisper is not installed for this platform (Intel macOS, Windows on ARM)."""
+    """faster-whisper is not installed for this platform (Windows on ARM)."""
 
 
 def _model(name: str):
