@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import coach, pipeline, tools
+from . import bridge, coach, pipeline, tools
 from .sessions import Store
 
 logger = logging.getLogger(__name__)
@@ -61,9 +61,11 @@ def _format_history(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _command(ctx, runtime: Runtime, raw: str) -> str:
+def _command(ctx, runtime: Runtime, app: dict, raw: str) -> str:
     mode, _, subject = (raw or "").strip().partition(" ")
     mode = mode.lower()
+    if mode == "app":  # the Desktop page's calls (see bridge.py)
+        return bridge.handle(app, subject)
     if mode == "history":
         return _format_history(pipeline.progress(runtime.store()))
     if mode not in coach.MODES or not subject.strip():
@@ -81,7 +83,8 @@ def register(ctx):
     for schema in (tools.START, tools.ANALYZE, tools.PROGRESS):
         ctx.register_tool(name=schema["name"], toolset=PLUGIN_ID, schema=schema, handler=handlers[schema["name"]])
 
-    ctx.register_command(PLUGIN_ID, lambda raw: _command(ctx, runtime, raw),
+    app = bridge.methods(ctx, runtime)
+    ctx.register_command(PLUGIN_ID, lambda raw: _command(ctx, runtime, app, raw),
                          description="Practise an interview or presentation out loud",
                          args_hint="interview <role> | presentation <topic> | history")
 

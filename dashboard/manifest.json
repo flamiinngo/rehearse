@@ -1,0 +1,7 @@
+{
+  "name": "rehearse",
+  "label": "Rehearse",
+  "description": "Upload endpoint for takes recorded on the Desktop Rehearse page.",
+  "api": "plugin_api.py",
+  "tab": { "hidden": true }
+}

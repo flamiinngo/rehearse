@@ -56,6 +56,10 @@ def ensure_model(data_dir: Path) -> Path:
         return path
 
 
+def model_ready(data_dir: Path) -> bool:
+    return (data_dir / "models" / MODEL_NAME).exists()
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

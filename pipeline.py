@@ -29,9 +29,12 @@ def _target(question: dict) -> tuple[float, float]:
     return (t * 0.5, t * 1.3)
 
 
-def _measure_media(store: Store, path: str, *, model: str, language: str, target) -> tuple[dict, str, list[str]]:
+def _measure_media(store: Store, path: str, *, model: str, language: str, target,
+                   on_stage) -> tuple[dict, str, list[str]]:
     notes: list[str] = []
+    on_stage("transcribing")
     words, lang, duration = speech.transcribe(path, model=model, language=language)
+    on_stage("eye_contact")
     samples = None
     try:
         samples = face.sample_video(path, face.ensure_model(store.root)) or None
@@ -60,7 +63,8 @@ def _measure_text(text: str, target) -> dict:
 
 
 def analyze(llm, store: Store, *, session_id: str, question_index: int, media_path: str = "",
-            answer_text: str = "", model: str = "base", language: str = "", keep_recording: bool = True) -> dict:
+            answer_text: str = "", model: str = "base", language: str = "", keep_recording: bool = True,
+            on_stage=lambda stage: None) -> dict:
     session = store.load(session_id)
     questions = session["questions"]
     if not 0 <= question_index < len(questions):
@@ -70,13 +74,15 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
 
     notes: list[str] = []
     if media_path:
-        report, transcript, notes = _measure_media(store, media_path, model=model, language=language, target=target)
+        report, transcript, notes = _measure_media(store, media_path, model=model, language=language, target=target,
+                                                   on_stage=on_stage)
     elif answer_text.strip():
         report, transcript = _measure_text(answer_text, target), answer_text.strip()
         notes.append("Measured from text only: pace, pauses and eye contact need a recording.")
     else:
         raise ValueError("Give a recording (media_path) or the answer as text (answer_text).")
 
+    on_stage("feedback")
     fb = coach.feedback(llm, mode=session["mode"], subject=session["subject"], question=question["question"],
                         transcript=transcript, delivery=report if report["measured"] != "text" else None)
     overall = fb["content_score"] if report["measured"] == "text" else round((report["score"] + fb["content_score"]) / 2)
@@ -85,6 +91,8 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
     recording = ""
     if media_path and keep_recording:
         recording = _keep(store, session_id, media_path, len(session["attempts"]) + 1)
+    elif media_path and _inside(store, media_path):
+        Path(media_path).unlink(missing_ok=True)  # an upload the user chose not to keep
 
     attempt = store.add_attempt(session_id, {
         "question_index": question_index, "question": question["question"], "transcript": transcript,
@@ -99,11 +107,15 @@ def _keep(store: Store, session_id: str, media_path: str, n: int) -> str:
     dest_dir = store.recordings_dir(session_id)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"take-{n:02d}{src.suffix or '.webm'}"
-    if src.resolve().is_relative_to(store.root.resolve()):
+    if _inside(store, media_path):
         shutil.move(str(src), dest)
     else:
         shutil.copy2(src, dest)
     return str(dest.relative_to(store.root))
+
+
+def _inside(store: Store, path: str) -> bool:
+    return Path(path).resolve().is_relative_to(store.root.resolve())
 
 
 def progress(store: Store) -> dict:

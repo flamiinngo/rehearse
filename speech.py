@@ -38,6 +38,11 @@ def is_ready(name: str) -> bool:
     return name in _models
 
 
+def warm(name: str) -> None:
+    """Download (first run only) and load the model so the first answer is not the slow one."""
+    _model(name)
+
+
 def transcribe(path: str, *, model: str = "base", language: str = "") -> tuple[list[Word], str, float]:
     """``(words, language, duration_seconds)`` for an audio or video file."""
     from faster_whisper import decode_audio
