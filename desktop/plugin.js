@@ -236,6 +236,11 @@ function Home({ engine, onStart }) {
               placeholder: `e.g. ${sc.eg}`,
               onChange: e => setSubject(e.target.value),
               onKeyDown: e => e.key === 'Enter' && subject.trim() && !busy && start()
+            }),
+            !subject && h('button', {
+              type: 'button', onClick: () => setSubject(sc.eg),
+              style: { background: 'none', border: 'none', padding: '6px 0 0', cursor: 'pointer', color: 'var(--ui-accent)', fontSize: 13 },
+              children: `Try the example: “${sc.eg}”`
             })
           ]
         }),
@@ -385,6 +390,16 @@ function Room({ session, index, onResult, onExit }) {
     recorder.current?.state === 'recording' && recorder.current.stop()
   }
 
+  // Space starts and stops an answer, so nobody has to reach for the mouse mid-sentence.
+  useEffect(() => {
+    const onKey = e => {
+      if (e.code !== 'Space' || e.repeat || /INPUT|TEXTAREA|BUTTON/.test(e.target?.tagName)) return
+      if (phase === 'ready' && stream) { e.preventDefault(); begin() }
+      else if (phase === 'recording') { e.preventDefault(); finish() }
+    }
+    return plugin.addEventListener(window, 'keydown', onKey)
+  }, [phase, stream])
+
   const target = q.target_seconds
   const over = elapsed > target * 1.3
 
@@ -425,6 +440,7 @@ function Room({ session, index, onResult, onExit }) {
     el('div', { ...S.row, justifyContent: 'center' }, [
       phase === 'ready' && h(Button, { key: 'b', size: 'lg', disabled: !stream, onClick: begin, children: '● Start answering' }),
       phase === 'recording' && h(Button, { key: 'f', size: 'lg', onClick: finish, children: over ? '■ Done (running long)' : '■ Done' }),
+      (phase === 'ready' || phase === 'recording') && el('span', { ...S.muted, width: '100%', textAlign: 'center' }, 'or press Space', { key: 'k' }),
       phase === 'working' && h(Busy, { key: 'w', text: stage || 'Working…' }),
       phase === 'failed' && h(Problem, { key: 'p', text: problem, onRetry: () => lastBlob.current && analyse(lastBlob.current) })
     ], { key: 'actions' })
