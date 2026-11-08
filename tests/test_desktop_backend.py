@@ -137,6 +137,13 @@ def test_upload_stores_a_recording_under_an_opaque_id(client):
     assert bridge._UPLOAD_ID.match(upload_id) and (folder / upload_id).read_bytes().startswith(b"\x1aE")
 
 
+def test_phone_recordings_are_accepted(client):
+    http, _, _ = client
+    for name, ctype in (("answer.m4a", "audio/x-m4a"), ("answer.mp3", "audio/mpeg"), ("answer.mp4", "video/mp4")):
+        upload_id = http.post("/upload", files={"file": (name, b"data", ctype)}).json()["upload_id"]
+        assert bridge._UPLOAD_ID.match(upload_id)
+
+
 def test_upload_refuses_non_media(client):
     http, _, folder = client
     r = http.post("/upload", files={"file": ("x.py", b"print(1)", "text/x-python")})

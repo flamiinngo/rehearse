@@ -355,7 +355,8 @@ function Room({ session, index, onResult, onExit }) {
     try {
       setStage('Saving your take…')
       const bytes = await blob.arrayBuffer()
-      const { upload_id } = await plugin.rest('/upload', { method: 'POST', upload: { filename: 'take.webm', contentType: 'video/webm', bytes }, timeoutMs: 120000 })
+      const contentType = (blob.type || 'video/webm').split(';')[0]
+      const { upload_id } = await plugin.rest('/upload', { method: 'POST', upload: { filename: blob.name || 'take.webm', contentType, bytes }, timeoutMs: 120000 })
       const { job } = await rpc('take.analyze', { session_id: session.id, question_index: index, upload_id })
       const attempt = await waitJob(job, s => setStage(STAGES[s] || ''))
       onResult(attempt, URL.createObjectURL(blob))
@@ -422,7 +423,7 @@ function Room({ session, index, onResult, onExit }) {
       ]
     }),
     error
-      ? h(Problem, { key: 'cam', text: error })
+      ? h(Problem, { key: 'cam', text: `${error} You can also upload a recording below.` })
       : h('div', {
           key: 'stage', style: { position: 'relative', borderRadius: 14, overflow: 'hidden', background: '#000', aspectRatio: '4 / 3', maxHeight: 460, alignSelf: 'center', width: '100%', maxWidth: 620 },
           children: [
@@ -439,7 +440,23 @@ function Room({ session, index, onResult, onExit }) {
     el('div', { ...S.row, justifyContent: 'center' }, [
       phase === 'ready' && h(Button, { key: 'b', size: 'lg', disabled: !stream, onClick: begin, children: '● Start answering' }),
       phase === 'recording' && h(Button, { key: 'f', size: 'lg', onClick: finish, children: over ? '■ Done (running long)' : '■ Done' }),
-      (phase === 'ready' || phase === 'recording') && el('span', { ...S.muted, width: '100%', textAlign: 'center' }, 'or press Space', { key: 'k' }),
+      phase === 'recording' && el('span', { ...S.muted, width: '100%', textAlign: 'center' }, 'or press Space', { key: 'k' }),
+      phase === 'ready' && h('div', {
+        key: 'alt', style: { ...S.muted, width: '100%', textAlign: 'center' },
+        children: [
+          stream && 'or press Space  ·  ',
+          h('label', {
+            key: 'up', style: { color: 'var(--ui-accent)', cursor: 'pointer' },
+            children: [
+              'Upload a recording instead',
+              h('input', {
+                type: 'file', accept: 'audio/*,video/*', 'data-rehearse-upload': '', style: { display: 'none' },
+                onChange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { lastBlob.current = f; analyse(f) } }
+              })
+            ]
+          })
+        ]
+      }),
       phase === 'working' && h(Busy, { key: 'w', text: stage || 'Working…' }),
       phase === 'failed' && h(Problem, { key: 'p', text: problem, onRetry: () => lastBlob.current && analyse(lastBlob.current) })
     ], { key: 'actions' })

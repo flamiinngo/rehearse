@@ -21,7 +21,7 @@ from .sessions import SessionNotFound, summarize
 
 logger = logging.getLogger(__name__)
 
-_UPLOAD_ID = re.compile(r"^[0-9a-f]{32}\.(webm|mp4|m4a|ogg|wav|mov)$")
+_UPLOAD_ID = re.compile(r"^[0-9a-f]{32}\.(webm|mp4|m4a|ogg|wav|mov|mp3)$")
 
 
 def _text(params: dict, key: str, limit: int, *, required: bool = False) -> str:
