@@ -1,5 +1,4 @@
 import importlib.util
-import json
 import time
 from pathlib import Path
 
@@ -85,18 +84,16 @@ def test_delete_session(methods):
         methods["session.get"]({"session_id": session["id"]})
 
 
-def test_bridge_always_answers_json_and_never_raises(methods):
-    call = lambda raw: json.loads(bridge.handle(methods, raw))
-    assert call('job.status {"job": "x"}')["ok"]["state"] == "missing"
-    assert "unknown method" in call("format.disk {}")["error"]
-    assert call("plan.create {not json")["error"]
-    assert call('plan.create ["a"]')["error"] == "params must be a JSON object"
-    assert call('plan.create {"mode": "interview"}')["error"] == "subject is required"
+def test_bridge_always_answers_and_never_raises(methods):
+    assert bridge.call(methods, "job.status", {"job": "x"})["ok"]["state"] == "missing"
+    assert "unknown method" in bridge.call(methods, "format.disk", {})["error"]
+    assert bridge.call(methods, "plan.create", ["a"])["error"] == "params must be a JSON object"
+    assert bridge.call(methods, "plan.create", {"mode": "interview"})["error"] == "subject is required"
 
     def boom(params):
         raise ZeroDivisionError
 
-    assert "unexpected problem" in json.loads(bridge.handle({"x": boom}, "x {}"))["error"]
+    assert "unexpected problem" in bridge.call({"x": boom}, "x", {})["error"]
 
 
 # ---- upload endpoint ----
@@ -114,6 +111,22 @@ def client(tmp_path, monkeypatch):
     app = fastapi.FastAPI()
     app.include_router(api.router)
     return TestClient(app), api, tmp_path / "uploads"
+
+
+def test_app_route_forwards_to_the_loaded_plugin_and_explains_when_it_is_off(client, monkeypatch, methods):
+    import sys
+    import types
+
+    http, api, _ = client
+    assert "not enabled" in http.post("/app", json={"method": "job.status", "params": {"job": "x"}}).json()["error"]
+
+    loaded = types.ModuleType("hermes_plugins.rehearse_under_test")
+    loaded.__file__ = str(api._PLUGIN_INIT)
+    loaded.APP = methods
+    loaded.handle_app = lambda method, params: bridge.call(methods, method, params)
+    monkeypatch.setitem(sys.modules, loaded.__name__, loaded)
+    assert http.post("/app", json={"method": "job.status", "params": {"job": "x"}}).json()["ok"]["state"] == "missing"
+    assert http.post("/app", json={"method": "plan.create", "params": {}}).json()["error"]
 
 
 def test_upload_stores_a_recording_under_an_opaque_id(client):

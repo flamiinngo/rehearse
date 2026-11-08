@@ -68,11 +68,20 @@ def _format_history(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _command(ctx, runtime: Runtime, app: dict, raw: str) -> str:
+# The Desktop page's backend calls, set by register(). dashboard/plugin_api.py runs in this same
+# process and finds this module by its file path; see bridge.py for why calls take that route.
+APP: dict | None = None
+
+
+def handle_app(method: str, params: dict) -> dict:
+    if APP is None:
+        return {"error": "Rehearse is not enabled for this Hermes profile. Enable it in Capabilities → Plugins."}
+    return bridge.call(APP, method, params)
+
+
+def _command(ctx, runtime: Runtime, raw: str) -> str:
     kind, _, subject = (raw or "").strip().partition(" ")
     kind = kind.lower()
-    if kind == "app":  # the Desktop page's calls (see bridge.py)
-        return bridge.handle(app, subject)
     if kind == "history":
         return _format_history(pipeline.progress(runtime.store()))
     try:
@@ -94,8 +103,9 @@ def register(ctx):
     for schema in (tools.START, tools.ANALYZE, tools.PROGRESS):
         ctx.register_tool(name=schema["name"], toolset=PLUGIN_ID, schema=schema, handler=handlers[schema["name"]])
 
-    app = bridge.methods(ctx, runtime)
-    ctx.register_command(PLUGIN_ID, lambda raw: _command(ctx, runtime, app, raw),
+    global APP
+    APP = bridge.methods(ctx, runtime)
+    ctx.register_command(PLUGIN_ID, lambda raw: _command(ctx, runtime, raw),
                          description="Practise an interview or presentation out loud",
                          args_hint="<job|technical|visa|pitch|demo|...> <what for> | history")
 

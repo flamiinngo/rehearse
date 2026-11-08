@@ -1,18 +1,41 @@
-"""Receives a take recorded on the Desktop Rehearse page and parks it for analysis.
+"""The Desktop Rehearse page's backend: takes uploads, forwards page calls to the plugin.
 
-Only stores the file: transcription and feedback run in the agent half (it owns
-``ctx.llm``), which the page reaches through plugin RPC with the returned id.
+``POST /upload`` parks a recorded take; ``POST /app`` runs one call from the page's
+table (``bridge.py``) in the loaded agent half, which owns ``ctx.llm``. This router runs
+in the same process as that half (the gateway, or the plugin host under isolation), so
+it finds the module by its file path instead of importing it under a second name.
 """
 
 from __future__ import annotations
 
+import sys
 import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 
 router = APIRouter()
+
+_PLUGIN_INIT = Path(__file__).resolve().parent.parent / "__init__.py"
+
+
+def _agent_half():
+    """The loaded plugin package (the one whose ``__init__.py`` sits beside this folder), or None."""
+    for module in list(sys.modules.values()):
+        path = getattr(module, "__file__", None)
+        if path and getattr(module, "APP", None) is not None and Path(path).resolve() == _PLUGIN_INIT:
+            return module
+    return None
+
+
+@router.post("/app")
+def app(method: str = Body(...), params: dict = Body(default_factory=dict)):
+    half = _agent_half()
+    if half is None:
+        return {"error": "Rehearse is not enabled for this Hermes profile. Enable it in Capabilities → Plugins, "
+                         "then restart the gateway."}
+    return half.handle_app(method, params)
 
 MAX_BYTES = 400 * 1024 * 1024
 STALE_SECONDS = 24 * 3600

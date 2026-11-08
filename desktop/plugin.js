@@ -1,5 +1,5 @@
 // Rehearse — Desktop page: Hermes asks, you answer on camera, you get a scored replay.
-import { host, Button, ROUTES_AREA, SIDEBAR_NAV_AREA } from '@hermes/plugin-sdk'
+import { Button, ROUTES_AREA, SIDEBAR_NAV_AREA } from '@hermes/plugin-sdk'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
@@ -13,18 +13,17 @@ function h(type, props) {
 const PATH = '/rehearse'
 let plugin = null // the scoped PluginContext, set in register()
 
-// Backend calls ride the /rehearse slash command (`/rehearse app <method> <json>`) through
-// command.dispatch, which every supported release has; the command answers with JSON.
+// Backend calls go to the plugin's own REST namespace (/api/plugins/rehearse/app), which hands
+// them to the agent half. See bridge.py for why not plugin RPC or command.dispatch.
 async function rpc(name, params = {}) {
-  const res = await host.request('command.dispatch', { name: 'rehearse', arg: `app ${name} ${JSON.stringify(params)}` }, 30000)
   let out
   try {
-    out = JSON.parse(res?.output || '')
+    out = await plugin.rest('/app', { method: 'POST', body: { method: name, params }, timeoutMs: 30000 })
   } catch {
-    throw new Error('Rehearse is not enabled for this Hermes profile. Enable it in Capabilities → Plugins.')
+    throw new Error('Rehearse could not reach Hermes. Check that the plugin is enabled, then restart the gateway.')
   }
-  if (out.error) throw new Error(out.error)
-  return out.ok
+  if (out?.error) throw new Error(out.error)
+  return out?.ok
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 

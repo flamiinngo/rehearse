@@ -1,18 +1,18 @@
-"""The Desktop page's backend calls, carried by the ``/rehearse`` slash command.
+"""The Desktop page's backend calls, reached through the plugin's own REST namespace.
 
-The page runs ``/rehearse app <method> <json>`` through the gateway's
-``command.dispatch`` (present in every supported release; plugin JSON-RPC is not
-in v0.23.0), and the handler answers with JSON. The command is the one surface
-holding ``ctx.llm``. A raising plugin command is swallowed by the dispatcher, so
-every outcome, errors included, comes back as JSON.
+The page POSTs ``{method, params}`` to ``/api/plugins/rehearse/app``
+(``dashboard/plugin_api.py``), which hands it to this table in the loaded plugin.
+Two other doors do not work for a page that is not a chat: plugin JSON-RPC is not
+in v0.23.0, and ``command.dispatch`` over the Desktop/Webapp connection refuses any
+call without a live session (``4001 not_found``, even for ``/help``). The table
+lives in the agent half because only ``register(ctx)`` holds ``ctx.llm``.
 
-Any authenticated client can run any command with any arguments, so every input
-is validated and nothing reaches beyond this plugin's own data.
+Any authenticated client can call these with any params, so every input is
+validated and nothing reaches beyond this plugin's own data.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 
@@ -113,19 +113,17 @@ def methods(ctx, runtime) -> dict:
     }
 
 
-def handle(table: dict, raw: str) -> str:
-    """``<method> <json params>`` → JSON ``{"ok": result}`` or ``{"error": message}``."""
-    name, _, payload = (raw or "").strip().partition(" ")
-    handler = table.get(name)
+def call(table: dict, method: str, params) -> dict:
+    """``{"ok": result}`` or ``{"error": message}``; never raises."""
+    handler = table.get(method)
     if handler is None:
-        return json.dumps({"error": f"unknown method: {name}"})
+        return {"error": f"unknown method: {method}"}
     try:
-        params = json.loads(payload) if payload.strip() else {}
         if not isinstance(params, dict):
             raise ValueError("params must be a JSON object")
-        return json.dumps({"ok": handler(params)}, ensure_ascii=False)
-    except ValueError as exc:  # JSONDecodeError included
-        return json.dumps({"error": str(exc)})
+        return {"ok": handler(params)}
+    except ValueError as exc:
+        return {"error": str(exc)}
     except Exception:
-        logger.exception("rehearse: app call %s failed", name)
-        return json.dumps({"error": "Rehearse hit an unexpected problem. Check the Hermes log for details."})
+        logger.exception("rehearse: app call %s failed", method)
+        return {"error": "Rehearse hit an unexpected problem. Check the Hermes log for details."}
