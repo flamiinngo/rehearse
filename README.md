@@ -2,6 +2,13 @@
 
 **Practise out loud. Hermes asks the questions, watches you answer, and shows you exactly what to fix.**
 
+**Full interview mode** runs like the real thing: the interviewer greets you and asks each question out loud,
+recording starts when it finishes speaking, live nudges appear while you answer (*look at the camera, move back a
+little, you're off-centre, add light*), and it moves straight on to the next question while your answer is scored in
+the background. At the end you get the **final account**: a hiring-panel verdict, your interview score, filler
+words, pace, eye contact and live presence across every answer, your three strengths and three fixes, and every
+question's replay. Prefer to drill one answer? **One question at a time** gives a replay and a retry after each.
+
 ![Pick what you are preparing for](docs/scenarios.jpg)
 
 Rehearse turns Hermes into a patient coach for **any interview or talk**. Pick what you are preparing

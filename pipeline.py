@@ -71,7 +71,7 @@ def _measure_text(text: str, target) -> dict:
 
 def analyze(llm, store: Store, *, session_id: str, question_index: int, media_path: str = "",
             answer_text: str = "", model: str = "base", language: str = "", keep_recording: bool = True,
-            on_stage=lambda stage: None) -> dict:
+            on_stage=lambda stage: None, presence: dict | None = None) -> dict:
     session = store.load(session_id)
     questions = session["questions"]
     if not 0 <= question_index < len(questions):
@@ -114,6 +114,7 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
     attempt = store.add_attempt(session_id, {
         "question_index": question_index, "question": question["question"], "transcript": transcript,
         "delivery": report, "feedback": fb, "overall": overall, "recording": recording, "notes": notes,
+        "presence": presence,
         "improvement": None if previous is None else overall - previous.get("overall", 0),
     })
     return attempt

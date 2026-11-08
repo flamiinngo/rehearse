@@ -152,6 +152,20 @@ function Bar({ name, value }) {
   })
 }
 
+function Pills({ label, value, options, onChange }) {
+  return h('div', {
+    style: S.row,
+    children: [
+      el('span', S.muted, label),
+      ...options.map(([v, text]) => h('button', {
+        key: v, type: 'button', onClick: () => onChange(v), 'aria-pressed': v === value,
+        style: { padding: '4px 12px', borderRadius: 999, fontSize: 13, cursor: 'pointer', color: 'inherit', border: `1px solid ${v === value ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)'}`, background: v === value ? 'color-mix(in srgb, var(--ui-accent) 14%, transparent)' : 'transparent' },
+        children: text
+      }))
+    ]
+  })
+}
+
 function Busy({ text }) {
   return h('div', {
     style: { ...S.row, ...S.muted, fontSize: 13.5 },
@@ -177,6 +191,7 @@ function Home({ engine, onStart }) {
   const [details, setDetails] = useState('')
   const [showDetails, setShowDetails] = useState(false)
   const [count, setCount] = useState(5)
+  const [mode, setMode] = useState(() => plugin.storage.get('mode', 'interview'))
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [history, setHistory] = useState(null)
@@ -191,7 +206,7 @@ function Home({ engine, onStart }) {
     try {
       const { job } = await rpc('plan.create', { scenario: scene, subject, details, count })
       const session = await waitJob(job, s => setBusy(STAGES[s] || STAGES.planning))
-      onStart(session)
+      onStart(session, mode)
     } catch (e) {
       setError(errorText(e))
       setBusy('')
@@ -266,7 +281,11 @@ function Home({ engine, onStart }) {
                   }))
               ]
             }),
-            h(Button, { onClick: start, disabled: !subject.trim() || !!busy, children: busy ? 'Preparing…' : 'Start rehearsal' })
+            h(Pills, {
+              label: 'Mode', value: mode, onChange: m => { setMode(m); plugin.storage.set('mode', m) },
+              options: [['interview', 'Full interview'], ['practice', 'One question at a time']]
+            }),
+            h(Button, { onClick: start, disabled: !subject.trim() || !!busy, children: busy ? 'Preparing…' : mode === 'interview' ? 'Start interview' : 'Start practice' })
           ]
         }),
         busy && h(Busy, { text: busy }),
@@ -341,13 +360,17 @@ function stopSpeech() {
   speaking = null
 }
 
+// Both resolve when the voice has finished (or was stopped), so a live interview can hand over the turn.
 function speakSystem(text, uri) {
   const synth = window.speechSynthesis
-  if (!synth) return
-  const u = new SpeechSynthesisUtterance(text)
-  const voice = pickVoice(synth.getVoices(), uri)
-  if (voice) u.voice = voice
-  synth.speak(u)
+  if (!synth) return Promise.resolve()
+  return new Promise(done => {
+    const u = new SpeechSynthesisUtterance(text)
+    const voice = pickVoice(synth.getVoices(), uri)
+    if (voice) u.voice = voice
+    u.onend = u.onerror = () => done()
+    synth.speak(u)
+  })
 }
 
 let speechTurn = 0
@@ -360,10 +383,13 @@ async function speak(text, enabled, uri = '') {
   try {
     const { audio, mime } = await rpc('voice.speak', { text })
     if (turn !== speechTurn) return
-    speaking = new Audio(`data:${mime};base64,${audio}`)
-    await speaking.play()
+    const el = (speaking = new Audio(`data:${mime};base64,${audio}`))
+    await new Promise(done => {
+      el.onended = el.onerror = el.onpause = () => done()
+      el.play().catch(done)
+    })
   } catch {
-    if (turn === speechTurn) speakSystem(text, '')
+    if (turn === speechTurn) await speakSystem(text, '')
   }
 }
 
@@ -645,6 +671,282 @@ function Summary({ sessionId, onDone }) {
   ])
 }
 
+// ---------- the full, live interview ----------
+const LIVE_EVERY_MS = 1200
+
+async function snapshot(video) {
+  if (!video?.videoWidth) return null
+  const c = document.createElement('canvas')
+  c.width = 320
+  c.height = Math.round((320 * video.videoHeight) / video.videoWidth)
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height)
+  return c.toDataURL('image/jpeg', 0.7)
+}
+
+function Interview({ session, onFinish }) {
+  const total = session.questions.length
+  const { stream, error } = useCamera(true)
+  const voices = useVoices()
+  const [voiceUri, setVoiceUri] = useState(() => plugin.storage.get('voice', ''))
+  const [index, setIndex] = useState(0)
+  const [phase, setPhase] = useState('asking') // asking | answering | closing
+  const [elapsed, setElapsed] = useState(0)
+  const [cue, setCue] = useState(null)
+  const [answered, setAnswered] = useState(0)
+  const video = useRef(null)
+  const recorder = useRef(null)
+  const chunks = useRef([])
+  const presence = useRef([])
+  const timers = useRef([])
+  const scored = useRef([]) // { index, job, url }: answers being scored in the background
+  const alive = useRef(true)
+
+  useEffect(() => { if (video.current && stream) video.current.srcObject = stream }, [stream])
+  useEffect(() => () => { alive.current = false; stopSpeech(); timers.current.forEach(clearInterval) }, [])
+
+  // Each question: the interviewer speaks, then hands over the turn by starting the recording.
+  useEffect(() => {
+    if (!stream) return
+    let cancelled = false
+    const q = session.questions[index]
+    const lead = index === 0 ? (session.opening ? `${session.opening} ` : '') : 'Thank you. '
+    setPhase('asking')
+    speak(lead + q.question, true, voiceUri).then(() => { if (!cancelled && alive.current) begin() })
+    return () => { cancelled = true }
+  }, [index, stream])
+
+  const begin = () => {
+    chunks.current = []
+    presence.current = []
+    const mime = pickMime()
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 900000 } : undefined)
+    rec.ondataavailable = e => e.data.size && chunks.current.push(e.data)
+    recorder.current = rec
+    rec.start(1000)
+    const t0 = Date.now()
+    setElapsed(0)
+    setPhase('answering')
+    let pending = false
+    timers.current = [
+      setInterval(() => setElapsed((Date.now() - t0) / 1000), 250),
+      setInterval(async () => {
+        if (pending) return
+        pending = true
+        try {
+          const image = await snapshot(video.current)
+          if (image) {
+            const r = await rpc('presence.check', { image })
+            presence.current.push({ ...r, t: (Date.now() - t0) / 1000 })
+            if (alive.current) setCue(r.cue)
+          }
+        } catch { /* a missed live check is not worth interrupting the answer for */ }
+        pending = false
+      }, LIVE_EVERY_MS)
+    ]
+  }
+
+  // Stop this answer and send it off to be scored while the interview carries on.
+  const finishAnswer = () => new Promise(done => {
+    timers.current.forEach(clearInterval)
+    setCue(null)
+    const rec = recorder.current
+    const samples = presence.current
+    const i = index
+    if (!rec || rec.state !== 'recording') return done()
+    rec.onstop = async () => {
+      const blob = new Blob(chunks.current, { type: 'video/webm' })
+      const entry = { index: i, job: null, url: URL.createObjectURL(blob) }
+      scored.current.push(entry)
+      setAnswered(scored.current.length)
+      try {
+        const bytes = await blob.arrayBuffer()
+        const { upload_id } = await plugin.rest('/upload', { method: 'POST', upload: { filename: 'take.webm', contentType: 'video/webm', bytes }, timeoutMs: 120000 })
+        entry.job = (await rpc('take.analyze', { session_id: session.id, question_index: i, upload_id, presence: samples })).job
+      } catch (e) {
+        entry.error = errorText(e)
+      }
+      done()
+    }
+    rec.stop()
+  })
+
+  const close = async saving => {
+    setPhase('closing')
+    await Promise.all([saving, speak("That's all my questions. Thank you for your time today.", true, voiceUri)])
+    onFinish(scored.current)
+  }
+
+  const next = () => {
+    if (phase !== 'answering') return
+    const saving = finishAnswer()
+    if (index < total - 1) setIndex(index + 1)
+    else close(saving)
+  }
+
+  const endEarly = () => {
+    stopSpeech()
+    close(recorder.current?.state === 'recording' ? finishAnswer() : Promise.resolve())
+  }
+
+  useEffect(() => {
+    const onKey = e => {
+      if (e.code !== 'Space' || e.repeat || /INPUT|TEXTAREA|BUTTON|SELECT/.test(e.target?.tagName)) return
+      if (phase === 'answering') { e.preventDefault(); next() }
+    }
+    return plugin.addEventListener(window, 'keydown', onKey)
+  }, [phase, index])
+
+  const q = session.questions[index]
+  const target = q.target_seconds
+  return el('div', S.wrap, [
+    h('div', {
+      key: 'top', style: { ...S.row, justifyContent: 'space-between' },
+      children: [
+        h('div', { style: S.row, children: session.questions.map((_, i) => el('span', {
+          width: 26, height: 6, borderRadius: 3,
+          background: i < answered ? 'var(--ui-accent)' : i === index ? 'color-mix(in srgb, var(--ui-accent) 45%, transparent)' : 'var(--ui-stroke-secondary)'
+        }, null, { key: i })) }),
+        h('div', { style: S.row, children: [
+          h(VoicePicker, { voices, value: voiceUri, onChange: uri => { setVoiceUri(uri); plugin.storage.set('voice', uri) } }),
+          h(Button, { variant: 'ghost', size: 'sm', onClick: endEarly, disabled: phase === 'closing', children: 'End interview' })
+        ] })
+      ]
+    }),
+    h('div', {
+      key: 'q', style: { ...S.card, display: 'flex', flexDirection: 'column', gap: 6 },
+      children: [
+        el('div', S.muted, `Question ${index + 1} of ${total}`),
+        el('div', { fontSize: 20, fontWeight: 600, lineHeight: 1.35 }, q.question)
+      ]
+    }),
+    error
+      ? h(Problem, { key: 'cam', text: error })
+      : h('div', {
+          key: 'stage', style: { position: 'relative', borderRadius: 14, overflow: 'hidden', background: '#000', aspectRatio: '4 / 3', maxHeight: 460, alignSelf: 'center', width: '100%', maxWidth: 620 },
+          children: [
+            h('video', { ref: video, autoPlay: true, muted: true, playsInline: true, style: { width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' } }),
+            el('div', {
+              position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(0,0,0,.55)',
+              color: '#fff', padding: '5px 12px', borderRadius: 999, fontSize: 13
+            }, phase === 'answering'
+              ? [el('span', { width: 9, height: 9, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }, null, { key: 'd' }), `Your turn · ${fmtTime(elapsed)} / ${fmtTime(target)}`]
+              : phase === 'closing' ? 'Wrapping up…' : '🎙 The interviewer is asking…'),
+            cue && phase === 'answering' && el('div', {
+              position: 'absolute', left: '50%', bottom: 20, transform: 'translateX(-50%)', background: 'rgba(15,23,42,.82)',
+              color: '#fff', padding: '8px 16px', borderRadius: 999, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap',
+              border: '1px solid rgba(255,255,255,.18)'
+            }, `👀 ${cue}`),
+            phase === 'answering' && el('div', { position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, background: 'rgba(255,255,255,.2)' },
+              el('div', { height: '100%', width: `${Math.min(100, (elapsed / target) * 100)}%`, background: elapsed > target * 1.3 ? '#ef4444' : elapsed > target ? '#f59e0b' : '#22c55e', transition: 'width 250ms linear' })),
+            !stream && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 14 }, 'Starting camera…')
+          ]
+        }),
+    el('div', { ...S.row, justifyContent: 'center' }, [
+      phase === 'answering' && h(Button, { key: 'n', size: 'lg', onClick: next, children: index < total - 1 ? 'Done · next question' : 'Done · finish interview' }),
+      phase === 'answering' && el('span', { ...S.muted, width: '100%', textAlign: 'center' }, 'or press Space when you have finished your answer', { key: 'k' }),
+      phase === 'asking' && el('span', S.muted, 'Listen to the question. Recording starts when the interviewer finishes.', { key: 'a' })
+    ], { key: 'actions' })
+  ])
+}
+
+// ---------- the final account ----------
+const VERDICT = {
+  strong: { label: 'Strong · would advance', color: 'var(--ui-green)' },
+  promising: { label: 'Promising · close, needs polish', color: 'var(--ui-yellow)' },
+  not_yet: { label: 'Not yet · keep practising', color: 'var(--ui-red)' }
+}
+
+function Stat({ label, value }) {
+  return h('div', { style: { ...S.card, padding: 14, flex: '1 1 140px' }, children: [
+    el('div', S.muted, label),
+    el('div', { fontSize: 24, fontWeight: 700, marginTop: 4 }, value ?? '—')
+  ] })
+}
+
+function Report({ session, scored, cache, onOpen, onDone }) {
+  const [stage, setStage] = useState('Scoring your answers…')
+  const [report, setReport] = useState(() => cache[session.id] || null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (report) return
+    let stop = false
+    ;(async () => {
+      try {
+        let done = 0
+        for (const s of scored) {
+          if (s.job) await waitJob(s.job).catch(() => {})
+          if (stop) return
+          setStage(`Scoring your answers… ${++done} of ${scored.length}`)
+        }
+        setStage('Writing your debrief…')
+        const { job } = await rpc('interview.report', { session_id: session.id })
+        const r = await waitJob(job)
+        cache[session.id] = r
+        if (!stop) setReport(r)
+      } catch (e) {
+        if (!stop) setError(errorText(e))
+      }
+    })()
+    return () => { stop = true }
+  }, [])
+
+  if (error) return el('div', S.wrap, [h(Problem, { key: 'p', text: error }), h(Button, { key: 'b', onClick: onDone, children: 'Back to Rehearse' })])
+  if (!report) return el('div', S.wrap, [el('h1', S.h1, 'Your interview debrief', { key: 'h' }), h(Busy, { key: 'b', text: stage })])
+
+  const { debrief, numbers } = report
+  const v = VERDICT[debrief.verdict] || VERDICT.promising
+  const pct = x => (x == null ? null : `${Math.round(x * 100)}%`)
+  return el('div', S.wrap, [
+    el('span', S.muted, session.title, { key: 'crumb' }),
+    h('div', {
+      key: 'hero', style: { ...S.card, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' },
+      children: [
+        h(ScoreRing, { value: numbers.score ?? 0, size: 120, label: 'interview' }),
+        h('div', { style: { flex: 1, minWidth: 260 }, children: [
+          el('div', { display: 'inline-block', padding: '4px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700, color: v.color, border: `1px solid ${v.color}` }, v.label),
+          el('div', { fontSize: 20, fontWeight: 650, marginTop: 10, lineHeight: 1.35 }, debrief.headline),
+          el('div', { ...S.muted, marginTop: 6 }, `${numbers.answered} of ${session.questions.length} questions answered`)
+        ] })
+      ]
+    }),
+    el('div', { display: 'flex', gap: 12, flexWrap: 'wrap' }, [
+      h(Stat, { key: 'f', label: 'Filler words / min', value: numbers.fillers_per_minute }),
+      h(Stat, { key: 'w', label: 'Pace (words / min)', value: numbers.wpm && Math.round(numbers.wpm) }),
+      h(Stat, { key: 'e', label: 'Eye contact', value: pct(numbers.eye_contact) }),
+      h(Stat, { key: 'l', label: 'Live presence', value: pct(numbers.live_facing) })
+    ], { key: 'stats' }),
+    h('div', { key: 'coach', style: S.grid2, children: [
+      h('div', { style: S.card, children: h(List, { title: 'Your strengths', items: debrief.strengths, icon: '✓' }) }),
+      h('div', { style: S.card, children: h(List, { title: 'Fix before the real thing', items: debrief.fixes, icon: '→' }) })
+    ] }),
+    numbers.top_cues?.length > 0 && el('div', S.card, [
+      el('div', { fontWeight: 600, fontSize: 13.5, marginBottom: 6 }, 'What the camera noticed while you answered', { key: 't' }),
+      ...numbers.top_cues.map(([c, n]) => el('div', { fontSize: 13.5, marginBottom: 4 }, `👀 ${c} · ${n} time${n === 1 ? '' : 's'}`, { key: c }))
+    ], { key: 'cues' }),
+    h('div', { key: 'qs', style: S.card, children: [
+      el('div', { fontWeight: 600, fontSize: 13.5, marginBottom: 6 }, 'Question by question', { key: 't' }),
+      ...numbers.questions.map(r => h('div', {
+        key: r.index, style: { display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px solid var(--ui-stroke-secondary)', fontSize: 13.5 },
+        children: [
+          h('div', { style: { flex: 1 }, children: [
+            el('div', { fontWeight: 600 }, `${r.index + 1}. ${r.question}${r.index === debrief.best_question ? '  ★ best answer' : ''}`),
+            r.summary && el('div', { ...S.muted, marginTop: 2 }, r.summary)
+          ] }),
+          r.answered
+            ? h('div', { style: S.row, children: [
+                el('span', { fontWeight: 700, color: scoreColor(r.overall) }, r.overall),
+                h(Button, { variant: 'outline', size: 'sm', onClick: () => onOpen(r.index), children: 'Replay' })
+              ] })
+            : el('span', S.muted, 'not answered')
+        ]
+      }))
+    ] }),
+    el('div', { ...S.card, fontSize: 13.5 }, `Next: ${debrief.next_practice}`, { key: 'next' }),
+    el('div', { ...S.row, justifyContent: 'center' }, h(Button, { size: 'lg', onClick: onDone, children: 'Practise again' }), { key: 'b' })
+  ])
+}
+
 // ---------- page ----------
 function RehearsePage() {
   const [view, setView] = useState({ name: 'home' })
@@ -663,8 +965,23 @@ function RehearsePage() {
   }, [])
 
   const go = useCallback(v => setView(v), [])
+  const reports = useRef({})
+  const openFromReport = async (session, scored, index) => {
+    const { session: fresh } = await rpc('session.get', { session_id: session.id })
+    const attempt = [...fresh.attempts].reverse().find(a => a.question_index === index)
+    const take = [...scored].reverse().find(s => s.index === index)
+    if (attempt) go({ name: 'replay', session: fresh, index, attempt, videoUrl: take?.url, back: { name: 'report', session, scored } })
+  }
   const page = {
-    home: () => h(Home, { engine, onStart: session => go({ name: 'room', session, index: 0 }) }),
+    home: () => h(Home, {
+      engine,
+      onStart: (session, mode) => go(mode === 'interview' ? { name: 'interview', session } : { name: 'room', session, index: 0 })
+    }),
+    interview: () => h(Interview, { key: view.session.id, session: view.session, onFinish: scored => go({ name: 'report', session: view.session, scored }) }),
+    report: () => h(Report, {
+      session: view.session, scored: view.scored || [], cache: reports.current,
+      onOpen: index => openFromReport(view.session, view.scored || [], index), onDone: () => go({ name: 'home' })
+    }),
     room: () => h(Room, {
       key: `${view.session?.id}-${view.index}-${view.take || 0}`, session: view.session, index: view.index,
       onExit: () => go({ name: 'summary', session: view.session }),
@@ -672,9 +989,9 @@ function RehearsePage() {
     }),
     replay: () => h(Replay, {
       session: view.session, index: view.index, attempt: view.attempt, videoUrl: view.videoUrl,
-      isLast: view.index >= view.session.questions.length - 1,
+      isLast: !!view.back || view.index >= view.session.questions.length - 1,
       onRetry: () => go({ name: 'room', session: view.session, index: view.index, take: (view.take || 0) + 1 }),
-      onNext: () => view.index >= view.session.questions.length - 1
+      onNext: () => view.back ? go(view.back) : view.index >= view.session.questions.length - 1
         ? go({ name: 'summary', session: view.session })
         : go({ name: 'room', session: view.session, index: view.index + 1 })
     }),

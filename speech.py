@@ -15,6 +15,7 @@ _VERBATIM_PROMPT = "Umm, let me think, uh... like, hmm. Okay, so, um, here's wha
 
 _models: dict[str, object] = {}
 _lock = threading.Lock()
+_run = threading.Lock()  # live interviews analyse answers in parallel; the model runs one at a time
 
 
 class SpeechUnavailable(RuntimeError):
@@ -48,7 +49,11 @@ def transcribe(path: str, *, model: str = "base", language: str = "") -> tuple[l
     from faster_whisper import decode_audio
 
     m = _model(model)
-    audio = decode_audio(path)
+    with _run:
+        return _transcribe(m, decode_audio(path), language)
+
+
+def _transcribe(m, audio, language):
     lang = language or m.detect_language(audio)[0]
     segments, info = m.transcribe(
         audio, language=lang, word_timestamps=True, vad_filter=False,

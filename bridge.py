@@ -13,11 +13,13 @@ validated and nothing reaches beyond this plugin's own data.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import re
 
 from . import coach, face, jobs, pipeline, speech, voice
-from .sessions import SessionNotFound, summarize
+from .sessions import SessionNotFound, interview_numbers, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +82,46 @@ def methods(ctx, runtime) -> dict:
         if not media.is_file():
             raise ValueError("That recording was not found. Record the answer again.")
 
+        samples = params.get("presence")
+        presence = face.summarize_presence(samples) if isinstance(samples, list) else None
+
         def work(stage):
             return pipeline.analyze(ctx.llm, store, session_id=session_id, question_index=question_index,
-                                    media_path=str(media), on_stage=stage, **runtime.speech_settings())
+                                    media_path=str(media), on_stage=stage, presence=presence,
+                                    **runtime.speech_settings())
 
         return {"job": jobs.submit("analyze", work)}
+
+    def presence_check(params, **_):
+        raw = _text(params, "image", 400_000, required=True)
+        try:
+            jpeg = base64.b64decode(raw.split(",", 1)[-1], validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("image must be a base64 JPEG") from None
+        return face.check_frame(jpeg, face.ensure_model(runtime.store().root))
+
+    def interview_report(params, **_):
+        session_id = _text(params, "session_id", 64, required=True)
+        store = runtime.store()
+
+        def work(stage):
+            stage("debrief")
+            session = store.load(session_id)
+            numbers = interview_numbers(session)
+            takes = {a["question_index"]: a for a in session.get("attempts", [])}
+            answers = [{"question": q["question"], "transcript": (takes.get(i) or {}).get("transcript", ""),
+                        "numbers": {k: v for k, v in (takes.get(i) or {}).get("delivery", {}).items()
+                                    if k in ("filler_count", "wpm", "facing_ratio", "duration")}}
+                       for i, q in enumerate(session["questions"]) if i in takes]
+            if not answers:
+                raise ValueError("Answer at least one question for a debrief.")
+            debrief = coach.interview_report(ctx.llm, scenario=pipeline.scenario_of(session),
+                                             subject=session["subject"], answers=answers)
+            report = {"debrief": debrief, "numbers": numbers}
+            store.update(session_id, report=report)
+            return report
+
+        return {"job": jobs.submit("report", work)}
 
     def job_status(params, **_):
         return jobs.status(_text(params, "job", 32, required=True))
@@ -112,7 +149,7 @@ def methods(ctx, runtime) -> dict:
     return {
         "scenarios": scenarios, "voice.speak": voice_speak, "engine.prepare": engine_prepare, "plan.create": plan_create, "take.analyze": take_analyze,
         "job.status": job_status, "sessions.list": sessions_list, "session.get": session_get,
-        "session.delete": session_delete,
+        "session.delete": session_delete, "presence.check": presence_check, "interview.report": interview_report,
     }
 
 

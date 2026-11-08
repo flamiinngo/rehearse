@@ -272,3 +272,50 @@ def _delivery_summary(d: dict) -> str:
 def catalog() -> list[dict]:
     """The scenario list the Desktop page renders."""
     return [{"key": k, "mode": s.mode, "label": s.label} for k, s in SCENARIOS.items()]
+
+
+REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["strong", "promising", "not_yet"]},
+        "headline": {"type": "string"},
+        "strengths": {"type": "array", "items": {"type": "string"}},
+        "fixes": {"type": "array", "items": {"type": "string"}},
+        "best_question": {"type": "integer"},
+        "next_practice": {"type": "string"},
+    },
+    "required": ["verdict", "headline", "strengths", "fixes", "best_question", "next_practice"],
+}
+
+_REPORT_INSTRUCTIONS = """You are the {asker} debriefing a full practice session of {what} about: {subject}.
+You get every question, the candidate's answer transcript, and the measured delivery for each answer.
+
+Write the debrief a candid, kind hiring panel would give:
+- verdict: strong (would advance), promising (close, needs polish) or not_yet.
+- headline: one sentence on how the whole session came across.
+- strengths: the 3 strongest things across ALL answers, specific, quoting the candidate where possible.
+- fixes: the 3 changes that would most improve the next real {what_short}, most important first; use the
+  delivery numbers (fillers, pace, eye contact, presence) where they matter.
+- best_question: the 0-based index of the best answer.
+- next_practice: one sentence on exactly what to rehearse next.
+- {integrity}
+Write in the language of the answers. Plain sentences, no markdown."""
+
+
+def interview_report(llm, *, scenario: str, subject: str, answers: list[dict]) -> dict:
+    s = SCENARIOS[scenario]
+    body = "\n\n".join(
+        f"Q{i}: {a['question']}\nAnswer: {a['transcript'] or '(no answer)'}\nDelivery: {json.dumps(a['numbers'])}"
+        for i, a in enumerate(answers))
+    result = _call(
+        llm,
+        instructions=_REPORT_INSTRUCTIONS.format(asker=s.asker, what=s.what, what_short=s.label.lower(),
+                                                 subject=subject, integrity=_INTEGRITY),
+        input=[{"type": "text", "text": body}], json_schema=REPORT_SCHEMA, schema_name="interview_report",
+        purpose="rehearse.report", temperature=0.3, max_tokens=1400,
+    )
+    data = result.parsed
+    if not isinstance(data, dict) or data.get("verdict") not in ("strong", "promising", "not_yet"):
+        raise CoachError("The model did not return a debrief. Try again or switch models.")
+    data["best_question"] = max(0, min(int(data.get("best_question") or 0), len(answers) - 1))
+    return data

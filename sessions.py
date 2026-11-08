@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-_lock = threading.Lock()
+_lock = threading.RLock()  # re-entrant: add_attempt holds it across load + save
 
 
 class SessionNotFound(KeyError):
@@ -74,11 +74,19 @@ class Store:
         return sorted(rows, key=lambda r: r["created_at"], reverse=True)
 
     def add_attempt(self, session_id: str, attempt: dict) -> dict:
-        session = self.load(session_id)
-        attempt = {"n": len(session["attempts"]) + 1, "at": time.time(), **attempt}
-        session["attempts"].append(attempt)
-        self.save(session)
+        with _lock:  # answers of a live interview finish concurrently: never lose one
+            session = self.load(session_id)
+            attempt = {"n": len(session["attempts"]) + 1, "at": time.time(), **attempt}
+            session["attempts"].append(attempt)
+            self.save(session)
         return attempt
+
+    def update(self, session_id: str, **fields) -> dict:
+        with _lock:
+            session = self.load(session_id)
+            session.update(fields)
+            self.save(session)
+        return session
 
     def delete(self, session_id: str) -> None:
         (self.sessions_dir / f"{_safe_id(session_id)}.json").unlink(missing_ok=True)
@@ -112,4 +120,44 @@ def summarize(session: dict) -> dict:
         "title": session.get("title", session["subject"]), "subject": session["subject"],
         "questions": len(session.get("questions", [])), "answered": len(best), "attempts": len(attempts),
         "score": avg, "fillers_per_minute": round(sum(fillers) / len(fillers), 2) if fillers else None,
+    }
+
+
+def latest_by_question(session: dict) -> dict[int, dict]:
+    latest: dict[int, dict] = {}
+    for a in session.get("attempts", []):
+        latest[a.get("question_index", 0)] = a
+    return latest
+
+
+def interview_numbers(session: dict) -> dict:
+    """Aggregates across the latest answer to every question: the measured half of the final account."""
+    takes = latest_by_question(session)
+    rows, fillers, wpm, eye, live, cues = [], [], [], [], [], {}
+    for i, q in enumerate(session.get("questions", [])):
+        a = takes.get(i)
+        if a is None:
+            rows.append({"index": i, "question": q["question"], "answered": False})
+            continue
+        d = a.get("delivery") or {}
+        p = a.get("presence") or {}
+        rows.append({"index": i, "question": q["question"], "answered": True, "overall": a.get("overall"),
+                     "fillers": d.get("filler_count"), "wpm": d.get("wpm"), "facing": d.get("facing_ratio"),
+                     "summary": (a.get("feedback") or {}).get("summary")})
+        if d.get("fillers_per_minute") is not None:
+            fillers.append(d["fillers_per_minute"])
+        if d.get("wpm"):
+            wpm.append(d["wpm"])
+        if d.get("facing_ratio") is not None:
+            eye.append(d["facing_ratio"])
+        if p.get("facing_ratio") is not None:
+            live.append(p["facing_ratio"])
+        for cue, n in (p.get("cues") or {}).items():
+            cues[cue] = cues.get(cue, 0) + n
+    scored = [r["overall"] for r in rows if r.get("answered") and r.get("overall") is not None]
+    avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else None  # noqa: E731
+    return {
+        "questions": rows, "answered": len(scored), "score": round(sum(scored) / len(scored)) if scored else None,
+        "fillers_per_minute": avg(fillers), "wpm": avg(wpm), "eye_contact": avg(eye), "live_facing": avg(live),
+        "top_cues": sorted(cues.items(), key=lambda kv: -kv[1])[:3],
     }
