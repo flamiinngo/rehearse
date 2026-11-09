@@ -25,6 +25,7 @@ FAST_WPM = 175.0
 SLOW_WPM = 105.0
 LOOK_AWAY_SPAN_SECONDS = 2.5
 
+_DOUBLED_OK = frozenset({"had", "that", "is"})  # "we had had", "that that", "what it is is"
 _STRIP = re.compile(r"^[^\w']+|[^\w']+$")
 
 
@@ -209,7 +210,7 @@ def analyze(words: list[Word], *, duration: float | None = None, face: list[Face
 
     repeats = 0
     for a, b in zip(spoken, spoken[1:]):
-        if a.norm == b.norm and not a.norm.isdigit() and b.start - a.end < 1.0:
+        if a.norm == b.norm and a.norm not in _DOUBLED_OK and not a.norm.isdigit() and b.start - a.end < 1.0:
             repeats += 1
             moments.append(Moment(a.start, "repeat", f'Repeated "{a.norm}"'))
 

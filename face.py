@@ -140,7 +140,7 @@ def sample_video(path: str, model_path: Path) -> list[FaceSample]:
             if t < next_t:
                 continue
             next_t = t + 1.0 / SAMPLE_FPS
-            img = frame.to_ndarray(format="bgr24")
+            img = _upright(frame.to_ndarray(format="bgr24"), getattr(frame, "rotation", 0), cv2)
             h, w = img.shape[:2]
             if w > FRAME_WIDTH:
                 img = cv2.resize(img, (FRAME_WIDTH, int(h * FRAME_WIDTH / w)))
@@ -155,6 +155,13 @@ def sample_video(path: str, model_path: Path) -> list[FaceSample]:
             largest = max(faces, key=lambda f: f[2] * f[3])
             samples.append(FaceSample(t, classify(largest, cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))))
     return samples
+
+
+def _upright(img, rotation, cv2):
+    """Phones store portrait video sideways plus a rotation flag; the face detector needs it upright."""
+    turn = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+    code = turn.get(int(round(float(rotation or 0))) % 360)
+    return img if code is None else cv2.rotate(img, code)
 
 
 _live_detector: dict[str, object] = {}

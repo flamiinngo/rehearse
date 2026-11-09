@@ -71,10 +71,18 @@ const SCENE = Object.fromEntries(SCENES.flatMap(g => g.items).map(s => [s.key, s
 
 const SCORE_NAMES ={ fillers: 'Filler words', pace: 'Pace', eye_contact: 'Eye contact', pauses: 'Pauses', length: 'Length' }
 
+// A blip while polling (Hermes busy, a slow reply) is retried; only the job's own error ends the wait.
 async function waitJob(job, onStage) {
-  for (;;) {
+  for (let misses = 0; ;) {
     await sleep(700)
-    const s = await rpc('job.status', { job })
+    let s
+    try {
+      s = await rpc('job.status', { job })
+      misses = 0
+    } catch (e) {
+      if (++misses >= 5) throw e
+      continue
+    }
     if (s.state === 'done') return s.result
     if (s.state === 'error' || s.state === 'missing') throw new Error(s.error || 'Something went wrong.')
     onStage?.(s.stage)
@@ -185,7 +193,7 @@ function Problem({ text, onRetry }) {
 }
 
 // ---------- home: the whole onboarding is three choices ----------
-function Home({ engine, onStart }) {
+function Home({ engine, engineError, onRetryEngine, onStart, onOpen }) {
   const [scene, setScene] = useState('job')
   const [subject, setSubject] = useState('')
   const [details, setDetails] = useState('')
@@ -195,10 +203,21 @@ function Home({ engine, onStart }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [history, setHistory] = useState(null)
+  const [confirming, setConfirming] = useState('') // the session whose Delete was clicked once
 
-  useEffect(() => {
-    rpc('sessions.list').then(setHistory).catch(() => setHistory({ sessions: [], progress: {} }))
-  }, [])
+  const loadHistory = () => rpc('sessions.list').then(setHistory).catch(() => setHistory({ sessions: [], progress: {} }))
+  useEffect(() => { loadHistory() }, [])
+
+  const remove = async id => {
+    if (confirming !== id) return setConfirming(id)
+    setConfirming('')
+    try {
+      await rpc('session.delete', { session_id: id })
+    } catch (e) {
+      setError(errorText(e))
+    }
+    loadHistory()
+  }
 
   const start = async () => {
     setError('')
@@ -293,14 +312,28 @@ function Home({ engine, onStart }) {
         el('div', S.muted, '🔒 Your camera and microphone are used only while you practise. Speech and eye contact are analysed on this computer; only the transcript of your answer goes to your AI model for feedback. Recordings stay here and can be deleted.')
       ]
     }),
-    engine !== 'ready' && el('div', { key: 'engine' }, h(Busy, { text: engine === 'error' ? 'The speech engine could not start. Answers can still be typed in chat with /rehearse.' : STAGES[engine] || STAGES.speech_model })),
+    engine === 'error' && el('div', { key: 'engine' }, h(Problem, { text: engineError || 'The speech engine could not start.', onRetry: onRetryEngine })),
+    engine !== 'ready' && engine !== 'error' && el('div', { key: 'engine' }, h(Busy, { text: STAGES[engine] || STAGES.speech_model })),
     recent.length > 0 && h('div', {
       key: 'history', style: S.card,
       children: [
         h('div', { style: { ...S.row, justifyContent: 'space-between', marginBottom: 10 }, children: [el('span', { fontWeight: 600 }, 'Your progress'), prog.first_score != null && el('span', S.muted, `First ${prog.first_score} → latest ${prog.latest_score}`)] }),
         ...recent.map(r => h('div', {
-          key: r.id, style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--ui-stroke-secondary)', fontSize: 13.5 },
-          children: [el('span', null, `${(SCENE[r.scenario] || SCENE.job).emoji}  ${r.title}`), el('span', { fontWeight: 600, color: r.score != null ? scoreColor(r.score) : 'var(--ui-text-tertiary)' }, r.score ?? 'not answered')]
+          key: r.id, style: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: '1px solid var(--ui-stroke-secondary)', fontSize: 13.5 },
+          children: [
+            h('button', {
+              type: 'button', onClick: () => onOpen(r.id), title: 'Open this session',
+              style: { flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: '2px 0', color: 'inherit', cursor: 'pointer', fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+              children: `${(SCENE[r.scenario] || SCENE.job).emoji}  ${r.title}`
+            }),
+            el('span', { fontWeight: 600, color: r.score != null ? scoreColor(r.score) : 'var(--ui-text-tertiary)' }, r.score ?? 'not answered'),
+            h('button', {
+              type: 'button', onClick: () => remove(r.id), onBlur: () => confirming === r.id && setConfirming(''),
+              title: 'Delete this session and its recordings',
+              style: { background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 12.5, color: confirming === r.id ? 'var(--ui-red)' : 'var(--ui-text-tertiary)', fontWeight: confirming === r.id ? 600 : 400 },
+              children: confirming === r.id ? 'Delete for good?' : 'Delete'
+            })
+          ]
         }))
       ]
     })
@@ -496,7 +529,7 @@ function Room({ session, index, onResult, onExit }) {
   // Space starts and stops an answer, so nobody has to reach for the mouse mid-sentence.
   useEffect(() => {
     const onKey = e => {
-      if (e.code !== 'Space' || e.repeat || /INPUT|TEXTAREA|BUTTON/.test(e.target?.tagName)) return
+      if (e.code !== 'Space' || e.repeat || /INPUT|TEXTAREA|BUTTON|SELECT/.test(e.target?.tagName)) return
       if (phase === 'ready' && stream) { e.preventDefault(); begin() }
       else if (phase === 'recording') { e.preventDefault(); finish() }
     }
@@ -617,7 +650,7 @@ function Replay({ session, index, attempt, videoUrl, onRetry, onNext, isLast }) 
       children: [
         h(ScoreRing, { value: attempt.overall, label: 'overall' }),
         h('div', { style: { flex: 1, minWidth: 220 }, children: [
-          el('div', { fontSize: 16, fontWeight: 600, marginBottom: 4 }, fb ? fb.summary : 'Delivery scored. Content feedback could not be written this time.'),
+          el('div', { fontSize: 16, fontWeight: 600, marginBottom: 4 }, fb ? fb.summary : attempt.transcript ? 'Delivery scored. Content feedback could not be written this time.' : 'Nothing was heard in this take.'),
           el('div', S.muted, headline),
           attempt.improvement != null && el('div', { marginTop: 8, fontWeight: 600, color: attempt.improvement >= 0 ? 'var(--ui-green)' : 'var(--ui-red)' },
             attempt.improvement > 0 ? `▲ ${attempt.improvement} points better than your best try` : attempt.improvement === 0 ? 'Same as your best try' : `▼ ${-attempt.improvement} below your best try`)
@@ -891,25 +924,30 @@ function Report({ session, scored, cache, onOpen, onDone }) {
   const [stage, setStage] = useState('Scoring your answers…')
   const [report, setReport] = useState(() => cache[session.id] || null)
   const [error, setError] = useState('')
+  const [failed, setFailed] = useState([]) // answers that could not be scored, with the reason
 
   useEffect(() => {
     if (report) return
     let stop = false
+    const misses = []
     ;(async () => {
       try {
         let done = 0
         for (const s of scored) {
-          if (s.job) await waitJob(s.job).catch(() => {})
+          if (s.error) misses.push(`Question ${s.index + 1}: ${s.error}`)
+          else if (s.job) await waitJob(s.job).catch(e => misses.push(`Question ${s.index + 1}: ${errorText(e)}`))
           if (stop) return
           setStage(`Scoring your answers… ${++done} of ${scored.length}`)
         }
+        setFailed(misses)
         setStage('Writing your debrief…')
         const { job } = await rpc('interview.report', { session_id: session.id })
         const r = await waitJob(job)
         cache[session.id] = r
         if (!stop) setReport(r)
       } catch (e) {
-        if (!stop) setError(errorText(e))
+        // When no answer could be scored, the reason is the useful message, not "answer at least one question".
+        if (!stop) setError(misses.length === scored.length && misses.length ? misses[0] : errorText(e))
       }
     })()
     return () => { stop = true }
@@ -967,6 +1005,7 @@ function Report({ session, scored, cache, onOpen, onDone }) {
         ]
       }))
     ] }),
+    failed.length > 0 && el('div', { ...S.card, ...S.muted }, failed.map((f, i) => el('div', null, `ⓘ Not scored · ${f}`, { key: i })), { key: 'failed' }),
     el('div', { ...S.card, fontSize: 13.5 }, `Next: ${debrief.next_practice}`, { key: 'next' }),
     el('div', { ...S.row, justifyContent: 'center' }, h(Button, { size: 'lg', onClick: onDone, children: 'Practise again' }), { key: 'b' })
   ])
@@ -976,18 +1015,21 @@ function Report({ session, scored, cache, onOpen, onDone }) {
 function RehearsePage() {
   const [view, setView] = useState({ name: 'home' })
   const [engine, setEngine] = useState('starting')
+  const [engineError, setEngineError] = useState('')
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let stop = false
+    setEngine('starting')
     rpc('engine.prepare')
       .then(async r => {
         if (r.ready) return setEngine('ready')
         await waitJob(r.job, s => !stop && setEngine(s))
         !stop && setEngine('ready')
       })
-      .catch(() => !stop && setEngine('error'))
+      .catch(e => { if (!stop) { setEngineError(errorText(e)); setEngine('error') } })
     return () => { stop = true }
-  }, [])
+  }, [attempt])
 
   const go = useCallback(v => setView(v), [])
   const reports = useRef({})
@@ -997,9 +1039,20 @@ function RehearsePage() {
     const take = [...scored].reverse().find(s => s.index === index)
     if (attempt) go({ name: 'replay', session: fresh, index, attempt, videoUrl: take?.url, back: { name: 'report', session, scored } })
   }
+  // A past session opens on its final account when it has one, otherwise on its results.
+  const openSession = async id => {
+    try {
+      const { session } = await rpc('session.get', { session_id: id })
+      if (session.report) {
+        reports.current[id] = session.report
+        go({ name: 'report', session, scored: [] })
+      } else go({ name: 'summary', session })
+    } catch { /* deleted elsewhere: the list refreshes on the next visit */ }
+  }
   const page = {
     home: () => h(Home, {
-      engine,
+      engine, engineError, onRetryEngine: () => setAttempt(a => a + 1),
+      onOpen: openSession,
       onStart: (session, mode) => go(mode === 'interview' ? { name: 'interview', session } : { name: 'room', session, index: 0 })
     }),
     interview: () => h(Interview, { key: view.session.id, session: view.session, onFinish: scored => go(scored.length ? { name: 'report', session: view.session, scored } : { name: 'home' }) }),

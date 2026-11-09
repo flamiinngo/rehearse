@@ -87,3 +87,105 @@ def test_live_presence_with_no_face_is_not_measured_rather_than_zero(tmp_path):
     store.add_attempt(s["id"], {"question_index": 0, "overall": 50, "delivery": {}, "presence": summary})
     from rehearse.sessions import interview_numbers
     assert interview_numbers(store.load(s["id"]))["live_facing"] is None
+
+
+class Silent(SloppyLLM):
+    def complete_structured(self, **kw):
+        if kw["purpose"] != "rehearse.plan":
+            pytest.fail("the model was asked to judge an empty answer")
+        return SimpleNamespace(parsed={"title": "t", "opening": "o", "questions": [
+            {"question": f"Q{i}", "target_seconds": 60} for i in range(12)]})
+
+
+def test_plan_keeps_only_the_number_of_questions_asked_for(tmp_path):
+    s = pipeline.start(Silent(), Store(tmp_path), scenario="job", subject="x", count=3)
+    assert len(s["questions"]) == 3
+
+
+def test_a_silent_take_says_check_the_microphone_instead_of_inventing_feedback(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    s = pipeline.start(Silent(), store, scenario="job", subject="x", count=2)
+    monkeypatch.setattr(pipeline, "_measure_media", lambda *a, **k: (
+        {"measured": "audio", "score": 0, "word_count": 0}, "", []))
+    a = pipeline.analyze(Silent(), store, session_id=s["id"], question_index=0, media_path=str(tmp_path / "x.webm"),
+                         keep_recording=False)
+    assert a["overall"] == 0 and a["feedback"] is None
+    assert any("microphone" in n for n in a["notes"])
+
+
+def test_doubled_words_that_are_grammatical_are_not_stumbles():
+    assert analyze(timed("we had had a rough quarter and the the plan changed")).repeats == 1
+
+
+@pytest.mark.parametrize("rotation", [90, -90, 180, 0])
+def test_phone_video_stored_sideways_is_turned_upright(rotation):
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+
+    upright = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)
+    # What a phone stores: the picture turned against its rotation flag.
+    stored = {90: cv2.rotate(upright, cv2.ROTATE_90_COUNTERCLOCKWISE), -90: cv2.rotate(upright, cv2.ROTATE_90_CLOCKWISE),
+              180: cv2.rotate(upright, cv2.ROTATE_180), 0: upright}[rotation]
+    assert (face._upright(stored, rotation, cv2) == upright).all()
+
+
+class _Seg(SimpleNamespace):
+    pass
+
+
+class FakeWhisper:
+    def __init__(self, segments):
+        self.segments = segments
+
+    def detect_language(self, audio):
+        return ("en", 1.0)
+
+    def transcribe(self, audio, **kw):
+        return iter(self.segments), SimpleNamespace(language="en", duration=len(audio) / 16000)
+
+
+def _words(*texts):
+    return [SimpleNamespace(word=t, start=i * 0.4, end=i * 0.4 + 0.3) for i, t in enumerate(texts)]
+
+
+def test_silence_and_invented_words_are_not_an_answer():
+    np = pytest.importorskip("numpy")
+    from rehearse import speech
+
+    muted = np.zeros(32000, dtype=np.float32)
+    assert speech._transcribe(FakeWhisper([]), muted, "")[0] == []
+    hiss = (np.random.default_rng(0).standard_normal(32000) * 0.01).astype(np.float32)
+    ghost = _Seg(no_speech_prob=0.51, avg_logprob=-1.09, words=_words(" Okay.", " Okay."))
+    real = _Seg(no_speech_prob=0.05, avg_logprob=-0.3, words=_words(" I", " led", " the", " project"))
+    words, _, _ = speech._transcribe(FakeWhisper([ghost, real]), hiss, "")
+    assert [w.text.strip() for w in words] == ["I", "led", "the", "project"]
+
+
+def test_unreadable_recording_is_one_plain_sentence(tmp_path, monkeypatch):
+    pytest.importorskip("faster_whisper")
+    from rehearse import speech
+
+    monkeypatch.setitem(speech._models, "fake", FakeWhisper([]))
+    bad = tmp_path / "take.webm"
+    bad.write_bytes(b"\x00not a video" * 500)
+    with pytest.raises(ValueError, match="could not be read") as err:
+        speech.transcribe(str(bad), model="fake")
+    assert str(tmp_path) not in str(err.value)
+
+
+@pytest.mark.parametrize("name, key", [("Job interview", "job"), ("Investor Pitch", "pitch"), ("Speech or toast", "speech"),
+                                       ("  visa  ", "visa"), ("Class talk or thesis defence", "academic")])
+def test_the_names_the_error_lists_are_accepted(name, key):
+    assert coach.resolve(name) == key
+
+
+@pytest.mark.parametrize("index", [None, "first", "2nd?"])
+def test_a_bad_question_number_from_the_model_is_a_readable_error(tmp_path, index):
+    import json
+    from rehearse import tools
+
+    ctx = FakeCtx()
+    handlers = tools.make_handlers(ctx, FakeRuntime(tmp_path))
+    sid = json.loads(handlers["rehearse_start"]({"scenario": "job", "subject": "analyst"}))["session_id"]
+    out = json.loads(handlers["rehearse_analyze"]({"session_id": sid, "question_index": index, "answer_text": "I led it"}))
+    assert "question_index must be between" in out["error"] or out.get("overall") is not None

@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 
-MAX_CHARS = 700
+MAX_CHARS = 1500  # the opening plus the first question, spoken whole
 MAX_CACHED = 300
 _MIME = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav", ".m4a": "audio/mp4"}
 

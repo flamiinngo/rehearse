@@ -72,7 +72,7 @@ def make_handlers(ctx, runtime):
         try:
             s = pipeline.start(ctx.llm, runtime.store(), scenario=args.get("scenario") or args.get("mode") or "job",
                                subject=args.get("subject", ""), details=args.get("details", ""),
-                               count=args.get("count") or 5)
+                               count=coach._as_int(args.get("count"), 5))
         except (ValueError, coach.CoachError) as exc:
             return _err(str(exc))
         return _ok({
@@ -88,7 +88,7 @@ def make_handlers(ctx, runtime):
     def analyze(args: dict, **_):
         try:
             a = pipeline.analyze(ctx.llm, runtime.store(), session_id=args.get("session_id", ""),
-                                 question_index=int(args.get("question_index", 0)),
+                                 question_index=coach._as_int(args.get("question_index"), -1),
                                  media_path=args.get("media_path", ""), answer_text=args.get("answer_text", ""),
                                  **runtime.speech_settings())
         except SessionNotFound:

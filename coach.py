@@ -114,6 +114,8 @@ ALIASES = {"interview": "job", "talk": "presentation", "toast": "speech", "thesi
            "defence": "academic", "defense": "academic", "university": "admission", "scholarship": "admission",
            "immigration": "visa", "medical": "residency", "press": "media", "investor": "pitch"}
 
+_BY_LABEL = {s.label.lower(): k for k, s in SCENARIOS.items()}
+
 MODES = {"interview": "an interview", "presentation": "a presentation or talk, followed by questions"}
 
 PLAN_SCHEMA = {
@@ -197,8 +199,9 @@ class CoachError(RuntimeError):
 
 
 def resolve(name: str) -> str:
-    """Scenario key for a scenario name, alias or legacy mode; ``ValueError`` when unknown."""
-    key = ALIASES.get((name or "").strip().lower(), (name or "").strip().lower())
+    """Scenario key for a scenario key, its label, an alias or a legacy mode; ``ValueError`` when unknown."""
+    word = " ".join((name or "").replace("_", " ").split()).lower()
+    key = ALIASES.get(word) or _BY_LABEL.get(word) or word
     if key not in SCENARIOS:
         raise ValueError(f"Pick one of: {', '.join(s.label for s in SCENARIOS.values())}.")
     return key
@@ -247,7 +250,7 @@ def plan(llm, *, scenario: str, subject: str, details: str = "", count: int = 5)
         q["target_seconds"] = max(15, min(_as_int(q.get("target_seconds"), 90), 1800))
         q.setdefault("tip", "")
         q.setdefault("why", "")
-    data["questions"] = questions
+    data["questions"] = questions[:count]  # some models write more than asked for
     return data
 
 

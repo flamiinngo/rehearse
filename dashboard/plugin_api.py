@@ -42,7 +42,8 @@ MAX_BYTES = 400 * 1024 * 1024
 STALE_SECONDS = 24 * 3600
 _EXTENSIONS = {"video/webm": ".webm", "audio/webm": ".webm", "video/mp4": ".mp4", "audio/mp4": ".m4a",
                "audio/ogg": ".ogg", "audio/wav": ".wav", "audio/x-wav": ".wav", "video/quicktime": ".mov",
-               "audio/mpeg": ".mp3", "audio/x-m4a": ".m4a", "audio/aac": ".m4a"}
+               "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/x-m4a": ".m4a", "audio/aac": ".m4a",
+               "video/x-m4v": ".mp4", "audio/vnd.wave": ".wav"}
 
 
 def uploads_dir() -> Path:

@@ -92,14 +92,19 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
 
     on_stage("feedback")
     text_only = report["measured"] == "text"
-    try:
-        fb = coach.feedback(llm, scenario=scenario_of(session), subject=session["subject"], question=question["question"],
-                            transcript=transcript, delivery=None if text_only else report)
-    except coach.CoachError as exc:
-        if text_only:
-            raise  # a text answer has nothing to score without the model
-        fb = None  # the measured delivery is still worth keeping
-        notes.append(f"Content feedback is missing: {exc}")
+    fb = None
+    if not transcript.strip():
+        # A muted or wrong microphone: say so, rather than ask the model to judge an empty answer.
+        notes.append("No speech was heard in this take. Check that the right microphone is selected and not muted.")
+    else:
+        try:
+            fb = coach.feedback(llm, scenario=scenario_of(session), subject=session["subject"],
+                                question=question["question"], transcript=transcript,
+                                delivery=None if text_only else report)
+        except coach.CoachError as exc:
+            if text_only:
+                raise  # a text answer has nothing to score without the model
+            notes.append(f"Content feedback is missing: {exc}")  # the measured delivery is still worth keeping
     if fb is None:
         overall = report["score"]
     else:
