@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 # English plus the unambiguous hesitation sounds of French, German and Dutch.
 FILLERS = frozenset({"um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "mm", "eh", "ehm",
                      "euh", "äh", "ähm", "öh", "uhmm"})
-# Only filler when set off by commas ("like, really"), never in "I like Python".
+# Only filler when a comma follows ("it was, like, huge"), never in "I like Python" or ", so we shipped".
 COMMA_FILLERS = frozenset({"like", "so", "well", "right", "okay"})
 COMMA_PHRASES = (("you", "know"), ("i", "mean"))
 CRUTCH_WORDS = frozenset({"basically", "actually", "literally", "honestly", "totally", "obviously"})
@@ -99,15 +99,29 @@ def _filler_spans(words: list[Word]) -> list[tuple[int, str]]:
             continue
         if w.norm in FILLERS:
             found.append((i, w.norm))
-        elif w.norm in COMMA_FILLERS and (w.comma_after or prev_comma) and _filler_context(words, i):
+        elif w.norm in COMMA_FILLERS and w.comma_after and _filler_context(words, i):
             found.append((i, w.norm))
         i += 1
     return found
 
 
+# Words that make the next one part of the sentence even before a comma: "as well,", "I think so,",
+# "things I like,", "that's right,", "it's okay,".
+_BOUND_AFTER = {
+    "well": {"as", "very", "pretty", "quite", "so", "really", "went", "go", "goes", "do", "did", "done", "doing"},
+    "so": {"think", "hope", "guess", "believe", "said", "suppose", "not", "do", "did", "more", "even", "and"},
+    "like": {"i", "we", "they", "you", "would", "really", "don't", "didn't", "do", "to", "it"},
+    "right": {"that's", "is", "was", "turn", "the", "exactly", "all"},
+    "okay": {"is", "was", "it's", "that's", "be", "are", "seems", "seemed"},
+}
+
+
 def _filler_context(words: list[Word], i: int) -> bool:
+    w = words[i].norm
+    if i > 0 and not words[i - 1].comma_after and words[i - 1].norm in _BOUND_AFTER.get(w, ()):
+        return False
     # "so," and "well," opening the answer are normal; mid-answer they are verbal tics.
-    return words[i].norm == "like" or i > 0
+    return w == "like" or i > 0
 
 
 def _pace_timeline(words: list[Word], spoken: list[Word]) -> list[dict]:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -238,11 +239,24 @@ def plan(llm, *, scenario: str, subject: str, details: str = "", count: int = 5)
         temperature=0.7, max_tokens=1800,
     )
     data = result.parsed
-    if not isinstance(data, dict) or not data.get("questions"):
+    questions = [q for q in (data.get("questions") if isinstance(data, dict) else None) or []
+                 if isinstance(q, dict) and isinstance(q.get("question"), str) and q["question"].strip()]
+    if not questions:
         raise CoachError("The model did not return a question plan. Try again or switch models.")
-    for q in data["questions"]:
-        q["target_seconds"] = max(15, min(int(q.get("target_seconds") or 90), 1800))
+    for q in questions:
+        q["target_seconds"] = max(15, min(_as_int(q.get("target_seconds"), 90), 1800))
+        q.setdefault("tip", "")
+        q.setdefault("why", "")
+    data["questions"] = questions
     return data
+
+
+def _as_int(value, default: int) -> int:
+    """Models sometimes answer "85/100" or "90 seconds" where a number was asked for."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
+    digits = re.match(r"\s*(\d+)", str(value or ""))
+    return int(digits.group(1)) if digits else default
 
 
 def feedback(llm, *, scenario: str, subject: str, question: str, transcript: str, delivery: dict | None) -> dict:
@@ -260,7 +274,7 @@ def feedback(llm, *, scenario: str, subject: str, question: str, transcript: str
     data = result.parsed
     if not isinstance(data, dict) or "content_score" not in data:
         raise CoachError("The model did not return feedback. Try again or switch models.")
-    data["content_score"] = max(0, min(int(data["content_score"]), 100))
+    data["content_score"] = max(0, min(_as_int(data["content_score"], 0), 100))
     return data
 
 
@@ -326,6 +340,6 @@ def interview_report(llm, *, scenario: str, subject: str, answers: list[dict], s
     data = result.parsed
     if not isinstance(data, dict) or data.get("verdict") not in ("strong", "promising", "not_yet"):
         raise CoachError("The model did not return a debrief. Try again or switch models.")
-    data["best_question"] = max(0, min(int(data.get("best_question") or 1) - 1, len(answers) - 1))  # stored 0-based
+    data["best_question"] = max(0, min(_as_int(data.get("best_question"), 1) - 1, len(answers) - 1))  # stored 0-based
     data["verdict"] = verdict_for(score) or data["verdict"]
     return data

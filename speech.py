@@ -46,9 +46,9 @@ def warm(name: str) -> None:
 
 def transcribe(path: str, *, model: str = "base", language: str = "") -> tuple[list[Word], str, float]:
     """``(words, language, duration_seconds)`` for an audio or video file."""
+    m = _model(model)  # first, so a missing engine is the plain SpeechUnavailable sentence
     from faster_whisper import decode_audio
 
-    m = _model(model)
     with _run:
         return _transcribe(m, decode_audio(path), language)
 

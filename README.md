@@ -103,6 +103,7 @@ Settings → Plugins → Rehearse (or `plugins.entries.rehearse.settings` in `co
 ## What it does on your computer (disclosure)
 
 - **Camera and microphone** are used only while you are on the practice screen, and stop when you leave it.
+  No camera, or it is busy in another app? Rehearse carries on with the microphone alone and skips eye contact.
 - **Speech-to-text and eye-contact analysis run locally** (faster-whisper and OpenCV). No audio or video
   leaves your computer.
 - **The transcript of each answer is sent to your configured AI model** (through Hermes, with your existing

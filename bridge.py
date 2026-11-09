@@ -98,7 +98,10 @@ def methods(ctx, runtime) -> dict:
             jpeg = base64.b64decode(raw.split(",", 1)[-1], validate=True)
         except (binascii.Error, ValueError):
             raise ValueError("image must be a base64 JPEG") from None
-        return face.check_frame(jpeg, face.ensure_model(runtime.store().root))
+        root = runtime.store().root
+        if not face.model_ready(root):  # engine.prepare fetches it; a live frame never waits on a download
+            raise ValueError("The eye-contact check is still getting ready.")
+        return face.check_frame(jpeg, face.ensure_model(root))
 
     def interview_report(params, **_):
         session_id = _text(params, "session_id", 64, required=True)

@@ -31,6 +31,7 @@ YAW_LIMIT = 0.32
 PITCH_RANGE = (0.30, 0.78)
 
 _lock = threading.Lock()
+_verified: set[str] = set()  # model files already checked this run: the live check asks every frame
 
 
 class FaceUnavailable(RuntimeError):
@@ -40,7 +41,10 @@ class FaceUnavailable(RuntimeError):
 def ensure_model(data_dir: Path) -> Path:
     path = data_dir / "models" / MODEL_NAME
     with _lock:
+        if str(path) in _verified and path.exists():
+            return path
         if path.exists() and _sha256(path) == MODEL_SHA256:
+            _verified.add(str(path))
             return path
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".part")
@@ -53,6 +57,7 @@ def ensure_model(data_dir: Path) -> Path:
             tmp.unlink(missing_ok=True)
             raise FaceUnavailable("The downloaded face model failed its checksum and was discarded.")
         tmp.replace(path)
+        _verified.add(str(path))
         return path
 
 
@@ -227,8 +232,9 @@ def summarize_presence(samples: list[dict]) -> dict | None:
     movement = sum(moves) / len(moves) if moves else 0.0
     return {
         "samples": len(usable),
-        "facing_ratio": round(sum(1 for s in seen if s.get("facing")) / len(usable), 3),
-        "framed_ratio": round(sum(1 for s in seen if s.get("framing") == "ok") / len(usable), 3),
+        # No face in any frame (camera covered, wrong camera): not measured, rather than 0%.
+        "facing_ratio": round(sum(1 for s in seen if s.get("facing")) / len(usable), 3) if seen else None,
+        "framed_ratio": round(sum(1 for s in seen if s.get("framing") == "ok") / len(usable), 3) if seen else None,
         "cues": cues,
         "steadiness": "fidgety" if movement > 0.06 else "a little restless" if movement > 0.03 else "steady",
     }

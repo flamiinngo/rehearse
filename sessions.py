@@ -45,7 +45,8 @@ class Store:
     def load(self, session_id: str) -> dict:
         path = self.sessions_dir / f"{_safe_id(session_id)}.json"
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            with _lock:  # Windows refuses os.replace onto a file another thread is reading
+                return json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             raise SessionNotFound(session_id) from None
 
@@ -67,7 +68,8 @@ class Store:
         rows = []
         for path in self.sessions_dir.glob("*.json"):
             try:
-                s = json.loads(path.read_text(encoding="utf-8"))
+                with _lock:
+                    s = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             rows.append(summarize(s))

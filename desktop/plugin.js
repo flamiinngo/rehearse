@@ -308,6 +308,9 @@ function Home({ engine, onStart }) {
 }
 
 // ---------- the practice room ----------
+const AUDIO = { echoCancellation: true, noiseSuppression: true }
+
+// Camera and microphone; when the camera is missing, busy in another app or blocked, the microphone alone.
 function useCamera(active) {
   const [stream, setStream] = useState(null)
   const [error, setError] = useState('')
@@ -315,19 +318,21 @@ function useCamera(active) {
     if (!active) return
     let live = null
     let cancelled = false
-    navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: { echoCancellation: true, noiseSuppression: true } })
+    const media = navigator.mediaDevices
+    media
+      .getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: AUDIO })
+      .catch(camErr => media.getUserMedia({ audio: AUDIO }).catch(() => { throw camErr }))
       .then(s => (cancelled ? s.getTracks().forEach(t => t.stop()) : ((live = s), setStream(s))))
       .catch(e => setError(e?.name === 'NotAllowedError'
-        ? 'Hermes needs your camera and microphone to rehearse. Allow them in your system privacy settings, then try again.'
-        : e?.name === 'NotFoundError' ? 'No camera or microphone was found. Plug one in and try again.' : `The camera could not start: ${errorText(e)}`))
+        ? 'Hermes needs your microphone (and camera, if you have one) to rehearse. Allow them in your system privacy settings, then try again.'
+        : e?.name === 'NotFoundError' ? 'No microphone was found. Plug one in and try again.' : `The microphone could not start: ${errorText(e)}`))
     return () => {
       cancelled = true
       live?.getTracks().forEach(t => t.stop())
       setStream(null)
     }
   }, [active])
-  return { stream, error }
+  return { stream, error, audioOnly: !!stream && stream.getVideoTracks().length === 0 }
 }
 
 // The interviewer speaks with a voice installed on this computer: free, offline, many languages.
@@ -354,7 +359,10 @@ function pickVoice(voices, uri) {
 // provider). A system voice can be picked instead; it is also the fallback when Hermes cannot speak.
 let speaking = null
 
+let speechTurn = 0
+
 function stopSpeech() {
+  speechTurn++
   window.speechSynthesis?.cancel()
   if (speaking) speaking.pause()
   speaking = null
@@ -372,8 +380,6 @@ function speakSystem(text, uri) {
     synth.speak(u)
   })
 }
-
-let speechTurn = 0
 
 async function speak(text, enabled, uri = '') {
   if (!enabled || !text) return
@@ -407,14 +413,19 @@ function VoicePicker({ voices, value, onChange }) {
   })
 }
 
-function pickMime() {
-  for (const m of ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) if (window.MediaRecorder?.isTypeSupported(m)) return m
+function pickMime(stream) {
+  const options = stream.getVideoTracks().length
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['audio/webm;codecs=opus', 'audio/webm']
+  for (const m of options) if (window.MediaRecorder?.isTypeSupported(m)) return m
   return ''
 }
 
+const takeType = stream => (stream.getVideoTracks().length ? 'video/webm' : 'audio/webm')
+
 function Room({ session, index, onResult, onExit }) {
   const q = session.questions[index]
-  const { stream, error } = useCamera(true)
+  const { stream, error, audioOnly } = useCamera(true)
   const [voice, setVoice] = useState(true)
   const voices = useVoices()
   const [voiceUri, setVoiceUri] = useState(() => plugin.storage.get('voice', ''))
@@ -461,11 +472,11 @@ function Room({ session, index, onResult, onExit }) {
   const begin = () => {
     stopSpeech()
     chunks.current = []
-    const mime = pickMime()
+    const mime = pickMime(stream)
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 900000 } : undefined)
     rec.ondataavailable = e => e.data.size && chunks.current.push(e.data)
     rec.onstop = () => {
-      const blob = new Blob(chunks.current, { type: 'video/webm' })
+      const blob = new Blob(chunks.current, { type: takeType(stream) })
       lastBlob.current = blob
       analyse(blob)
     }
@@ -527,7 +538,8 @@ function Room({ session, index, onResult, onExit }) {
             }),
             phase === 'recording' && el('div', { position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, background: 'rgba(255,255,255,.2)' },
               el('div', { height: '100%', width: `${Math.min(100, (elapsed / target) * 100)}%`, background: over ? '#ef4444' : elapsed > target ? '#f59e0b' : '#22c55e', transition: 'width 250ms linear' })),
-            !stream && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 14 }, 'Starting camera…')
+            !stream && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 14 }, 'Starting camera…'),
+            audioOnly && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24, color: '#ccc', fontSize: 14, lineHeight: 1.6 }, '🎙 Microphone only: no camera is available, so eye contact will not be measured.')
           ]
         }),
     el('div', { ...S.row, justifyContent: 'center' }, [
@@ -685,7 +697,7 @@ async function snapshot(video) {
 
 function Interview({ session, onFinish }) {
   const total = session.questions.length
-  const { stream, error } = useCamera(true)
+  const { stream, error, audioOnly } = useCamera(true)
   const voices = useVoices()
   const [voiceUri, setVoiceUri] = useState(() => plugin.storage.get('voice', ''))
   const [index, setIndex] = useState(0)
@@ -699,7 +711,9 @@ function Interview({ session, onFinish }) {
   const presence = useRef([])
   const timers = useRef([])
   const scored = useRef([]) // { index, job, url }: answers being scored in the background
+  const saving = useRef([]) // one promise per answer, settled once its upload has been handed off
   const alive = useRef(true)
+  const ending = useRef(false)
 
   useEffect(() => { if (video.current && stream) video.current.srcObject = stream }, [stream])
   useEffect(() => () => { alive.current = false; stopSpeech(); timers.current.forEach(clearInterval) }, [])
@@ -711,14 +725,14 @@ function Interview({ session, onFinish }) {
     const q = session.questions[index]
     const lead = index === 0 ? (session.opening ? `${session.opening} ` : '') : 'Thank you. '
     setPhase('asking')
-    speak(lead + q.question, true, voiceUri).then(() => { if (!cancelled && alive.current) begin() })
+    speak(lead + q.question, true, voiceUri).then(() => { if (!cancelled && alive.current && !ending.current) begin() })
     return () => { cancelled = true }
   }, [index, stream])
 
   const begin = () => {
     chunks.current = []
     presence.current = []
-    const mime = pickMime()
+    const mime = pickMime(stream)
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 900000 } : undefined)
     rec.ondataavailable = e => e.data.size && chunks.current.push(e.data)
     recorder.current = rec
@@ -746,7 +760,12 @@ function Interview({ session, onFinish }) {
   }
 
   // Stop this answer and send it off to be scored while the interview carries on.
-  const finishAnswer = () => new Promise(done => {
+  const finishAnswer = () => {
+    const p = stopAndUpload()
+    saving.current.push(p)
+    return p
+  }
+  const stopAndUpload = () => new Promise(done => {
     timers.current.forEach(clearInterval)
     setCue(null)
     const rec = recorder.current
@@ -754,13 +773,13 @@ function Interview({ session, onFinish }) {
     const i = index
     if (!rec || rec.state !== 'recording') return done()
     rec.onstop = async () => {
-      const blob = new Blob(chunks.current, { type: 'video/webm' })
+      const blob = new Blob(chunks.current, { type: takeType(stream) })
       const entry = { index: i, job: null, url: URL.createObjectURL(blob) }
       scored.current.push(entry)
       setAnswered(scored.current.length)
       try {
         const bytes = await blob.arrayBuffer()
-        const { upload_id } = await plugin.rest('/upload', { method: 'POST', upload: { filename: 'take.webm', contentType: 'video/webm', bytes }, timeoutMs: 120000 })
+        const { upload_id } = await plugin.rest('/upload', { method: 'POST', upload: { filename: 'take.webm', contentType: blob.type, bytes }, timeoutMs: 120000 })
         entry.job = (await rpc('take.analyze', { session_id: session.id, question_index: i, upload_id, presence: samples })).job
       } catch (e) {
         entry.error = errorText(e)
@@ -770,22 +789,26 @@ function Interview({ session, onFinish }) {
     rec.stop()
   })
 
-  const close = async saving => {
+  const close = async () => {
+    ending.current = true
     setPhase('closing')
-    await Promise.all([saving, speak("That's all my questions. Thank you for your time today.", true, voiceUri)])
+    await Promise.all([...saving.current, speak("That's all my questions. Thank you for your time today.", true, voiceUri)])
     onFinish(scored.current)
   }
 
   const next = () => {
     if (phase !== 'answering') return
-    const saving = finishAnswer()
+    finishAnswer()
     if (index < total - 1) setIndex(index + 1)
-    else close(saving)
+    else close()
   }
 
   const endEarly = () => {
+    if (ending.current) return
+    ending.current = true
     stopSpeech()
-    close(recorder.current?.state === 'recording' ? finishAnswer() : Promise.resolve())
+    if (recorder.current?.state === 'recording') finishAnswer()
+    close()
   }
 
   useEffect(() => {
@@ -838,7 +861,8 @@ function Interview({ session, onFinish }) {
             }, `👀 ${cue}`),
             phase === 'answering' && el('div', { position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, background: 'rgba(255,255,255,.2)' },
               el('div', { height: '100%', width: `${Math.min(100, (elapsed / target) * 100)}%`, background: elapsed > target * 1.3 ? '#ef4444' : elapsed > target ? '#f59e0b' : '#22c55e', transition: 'width 250ms linear' })),
-            !stream && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 14 }, 'Starting camera…')
+            !stream && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 14 }, 'Starting camera…'),
+            audioOnly && el('div', { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24, color: '#ccc', fontSize: 14, lineHeight: 1.6 }, '🎙 Microphone only: no camera is available, so eye contact will not be measured.')
           ]
         }),
     el('div', { ...S.row, justifyContent: 'center' }, [
@@ -978,7 +1002,7 @@ function RehearsePage() {
       engine,
       onStart: (session, mode) => go(mode === 'interview' ? { name: 'interview', session } : { name: 'room', session, index: 0 })
     }),
-    interview: () => h(Interview, { key: view.session.id, session: view.session, onFinish: scored => go({ name: 'report', session: view.session, scored }) }),
+    interview: () => h(Interview, { key: view.session.id, session: view.session, onFinish: scored => go(scored.length ? { name: 'report', session: view.session, scored } : { name: 'home' }) }),
     report: () => h(Report, {
       session: view.session, scored: view.scored || [], cache: reports.current,
       onOpen: index => openFromReport(view.session, view.scored || [], index), onDone: () => go({ name: 'home' })

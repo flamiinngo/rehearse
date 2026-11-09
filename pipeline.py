@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import uuid
 from pathlib import Path
 
 from . import coach, delivery, face, speech
@@ -107,7 +108,7 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
     previous = best_by_question(session).get(question_index)
     recording = ""
     if media_path and keep_recording:
-        recording = _keep(store, session_id, media_path, len(session["attempts"]) + 1)
+        recording = _keep(store, session_id, media_path, question_index)
     elif media_path and _inside(store, media_path):
         Path(media_path).unlink(missing_ok=True)  # an upload the user chose not to keep
 
@@ -120,11 +121,12 @@ def analyze(llm, store: Store, *, session_id: str, question_index: int, media_pa
     return attempt
 
 
-def _keep(store: Store, session_id: str, media_path: str, n: int) -> str:
+def _keep(store: Store, session_id: str, media_path: str, question_index: int) -> str:
     src = Path(media_path)
     dest_dir = store.recordings_dir(session_id)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"take-{n:02d}{src.suffix or '.webm'}"
+    # Unique per take: live-interview answers are scored side by side, so a count read at the start collides.
+    dest = dest_dir / f"q{question_index + 1:02d}-{uuid.uuid4().hex[:8]}{src.suffix or '.webm'}"
     if _inside(store, media_path):
         shutil.move(str(src), dest)
     else:
