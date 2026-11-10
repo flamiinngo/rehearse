@@ -1,5 +1,7 @@
 # Rehearse
 
+![Rehearse: practise any interview out loud and get a hiring-panel debrief](docs/card.png)
+
 **Practise out loud. Hermes asks the questions, watches you answer, and shows you exactly what to fix.**
 
 **Full interview mode** runs like the real thing: the interviewer greets you and asks each question out loud,
@@ -9,7 +11,9 @@ the background. At the end you get the **final account**: a hiring-panel verdict
 words, pace, eye contact and live presence across every answer, your three strengths and three fixes, and every
 question's replay. Prefer to drill one answer? **One question at a time** gives a replay and a retry after each.
 
-![Pick what you are preparing for](docs/scenarios.jpg)
+![Full interview: the interviewer asks out loud and a live nudge appears while you answer](docs/screenshots/live-interview.jpg)
+
+![The final account: interview score, verdict, delivery numbers, strengths and fixes](docs/screenshots/debrief.jpg)
 
 Rehearse turns Hermes into a patient coach for **any interview or talk**. Pick what you are preparing
 for, type the role or topic, and press **Start**:
@@ -35,10 +39,14 @@ out loud, you answer on camera (or upload a recording), and a few seconds later 
   you said (gaps are left in `[brackets]` for you to fill, never invented), and the follow-up question you
   are most likely to get next
 
-![The practice room: Hermes asks a demo question with a tip and a target length](docs/practice-room.jpg)
+![A scored replay: every filler marked on the timeline, with delivery and content scores](docs/screenshots/replay.jpg)
+
+![Question by question: what the camera noticed and each answer's score, with a replay for each](docs/screenshots/question-by-question.jpg)
 
 Press **Try this one again** and Rehearse tells you how many points you gained. Your history shows your
 scores over time.
+
+![Pick what you are preparing for: 14 interviews and talks, and your progress](docs/screenshots/start.jpg)
 
 ## Quick start
 
